@@ -20,6 +20,7 @@ class Conversation(Base):
     )
     title: Mapped[str | None] = mapped_column(String(500), nullable=True)
     chat_mode: Mapped[str] = mapped_column(String(20), default="global", server_default="global")
+    context_mode: Mapped[str] = mapped_column(String(20), default="rag", server_default="rag")
 
     created_at: Mapped[datetime] = mapped_column(
         default=func.now(), server_default=func.now()

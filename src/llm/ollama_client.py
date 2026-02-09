@@ -14,7 +14,7 @@ class OllamaClient(BaseLLMClient):
     def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3:8b-instruct-q4_K_M"):
         self.base_url = base_url
         self.model = model
-        self.client = httpx.AsyncClient(timeout=120)
+        self.client = httpx.AsyncClient(timeout=300)
 
     async def generate(
         self,

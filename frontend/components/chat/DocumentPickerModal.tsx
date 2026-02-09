@@ -16,8 +16,10 @@ import {
   Trash2,
   BookOpen,
   Download,
+  GitBranch,
+  Star,
 } from "lucide-react";
-import { fetchDocumentLibrary, embedDocuments, fetchEmbedStatus } from "@/lib/api";
+import { fetchDocumentLibrary, embedDocuments, embedRepos, fetchEmbedStatus } from "@/lib/api";
 
 interface LibraryDocument {
   id: string;
@@ -39,12 +41,25 @@ interface LibraryPaper {
   folder_id: string;
 }
 
+interface LibraryRepo {
+  repo_id: string;
+  full_name: string;
+  description: string | null;
+  html_url: string;
+  stars_count: number;
+  primary_language: string | null;
+  has_local_doc: boolean;
+  document_id: string | null;
+  folder_id: string;
+}
+
 interface LibraryFolder {
   id: string;
   name: string;
   parent_id: string | null;
   documents: LibraryDocument[];
   papers: LibraryPaper[];
+  repos: LibraryRepo[];
   children: LibraryFolder[];
 }
 
@@ -60,13 +75,14 @@ interface EmbedStatusItem {
   error_message: string | null;
 }
 
-// Track selection: either a document or a paper
+// Track selection: document, paper, or repo
 interface SelectedItem {
-  type: "document" | "paper";
-  id: string; // document_id or paper_id
+  type: "document" | "paper" | "repo";
+  id: string; // document_id, paper_id, or repo_id
   label: string;
   contentType?: string;
   paper?: LibraryPaper;
+  repo?: LibraryRepo;
 }
 
 interface DocumentPickerModalProps {
@@ -95,14 +111,16 @@ function FolderNode({
   selectedItems,
   onToggleDoc,
   onTogglePaper,
+  onToggleRepo,
 }: {
   folder: LibraryFolder;
   selectedItems: Map<string, SelectedItem>;
   onToggleDoc: (id: string) => void;
   onTogglePaper: (paper: LibraryPaper) => void;
+  onToggleRepo: (repo: LibraryRepo) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
-  const totalItems = folder.documents.length + folder.papers.length;
+  const totalItems = folder.documents.length + folder.papers.length + (folder.repos?.length || 0);
   const hasContent = totalItems > 0 || folder.children.length > 0;
 
   if (!hasContent) return null;
@@ -174,6 +192,36 @@ function FolderNode({
             </label>
           ))}
 
+          {/* Bookmarked Repos */}
+          {folder.repos?.map((repo) => (
+            <label
+              key={`repo-${repo.repo_id}`}
+              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-muted"
+            >
+              <input
+                type="checkbox"
+                checked={selectedItems.has(`repo:${repo.repo_id}`)}
+                onChange={() => onToggleRepo(repo)}
+                className="h-3.5 w-3.5 rounded border-border accent-primary"
+              />
+              <GitBranch size={14} className="shrink-0 text-orange-500" />
+              <span className="flex-1 truncate text-foreground/90" title={repo.full_name}>
+                {repo.full_name}
+              </span>
+              <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
+                {repo.primary_language && (
+                  <span className="mr-1">{repo.primary_language}</span>
+                )}
+                <Star size={10} /> {repo.stars_count}
+              </span>
+              {repo.has_local_doc ? (
+                <span className="shrink-0 text-[10px] text-green-600">Ingested</span>
+              ) : (
+                <span className="shrink-0 text-[10px] text-blue-500">Will ingest</span>
+              )}
+            </label>
+          ))}
+
           {/* Sub-folders */}
           {folder.children.map((child) => (
             <FolderNode
@@ -182,6 +230,7 @@ function FolderNode({
               selectedItems={selectedItems}
               onToggleDoc={onToggleDoc}
               onTogglePaper={onTogglePaper}
+              onToggleRepo={onToggleRepo}
             />
           ))}
         </div>
@@ -301,6 +350,25 @@ export default function DocumentPickerModal({
     });
   };
 
+  const toggleRepo = (repo: LibraryRepo) => {
+    setSelectedItems((prev) => {
+      const next = new Map(prev);
+      const key = `repo:${repo.repo_id}`;
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.set(key, {
+          type: "repo",
+          id: repo.repo_id,
+          label: repo.full_name,
+          contentType: "text/x-github-repo",
+          repo,
+        });
+      }
+      return next;
+    });
+  };
+
   const removeItem = (key: string) => {
     setSelectedItems((prev) => {
       const next = new Map(prev);
@@ -319,29 +387,44 @@ export default function DocumentPickerModal({
       const items = Array.from(selectedItems.values());
       const documentIds = items.filter((i) => i.type === "document").map((i) => i.id);
       const paperIds = items.filter((i) => i.type === "paper").map((i) => i.id);
+      const repoIds = items.filter((i) => i.type === "repo").map((i) => i.id);
 
-      // Trigger embedding (papers will be auto-downloaded)
-      const embedResult = await embedDocuments(documentIds, paperIds);
+      // Run embed calls in parallel
+      const promises: Promise<any>[] = [];
+      if (documentIds.length > 0 || paperIds.length > 0) {
+        promises.push(embedDocuments(documentIds, paperIds));
+      }
+      if (repoIds.length > 0) {
+        promises.push(embedRepos(repoIds));
+      }
+
+      const results = await Promise.all(promises);
+
+      // Merge all results
+      const allResults: EmbedStatusItem[] = [];
+      for (const res of results) {
+        allResults.push(...res.results);
+      }
 
       // Update statuses
       const map = new Map<string, EmbedStatusItem>();
-      for (const item of embedResult.results) {
+      for (const item of allResults) {
         map.set(item.document_id, item);
       }
       setEmbedStatuses(map);
 
       // Check for failures
-      const failures = embedResult.results.filter((r: EmbedStatusItem) => r.status === "failed");
-      if (failures.length > 0 && failures.length === embedResult.results.length) {
+      const failures = allResults.filter((r) => r.status === "failed");
+      if (failures.length > 0 && failures.length === allResults.length) {
         setError("All items failed to embed");
         setEmbedding(false);
         return;
       }
 
       // Get successfully embedded document IDs
-      const successIds = embedResult.results
-        .filter((r: EmbedStatusItem) => r.status === "completed")
-        .map((r: EmbedStatusItem) => r.document_id);
+      const successIds = allResults
+        .filter((r) => r.status === "completed")
+        .map((r) => r.document_id);
 
       onConfirm(successIds);
     } catch {
@@ -355,6 +438,7 @@ export default function DocumentPickerModal({
 
   const selectedCount = selectedItems.size;
   const paperCount = Array.from(selectedItems.values()).filter((i) => i.type === "paper").length;
+  const repoCount = Array.from(selectedItems.values()).filter((i) => i.type === "repo").length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
@@ -364,7 +448,7 @@ export default function DocumentPickerModal({
           <div>
             <h2 className="text-base font-semibold text-foreground">Select Sources</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Choose documents and saved papers from your library to chat with
+              Choose documents, papers, and repos from your library to chat with
             </p>
           </div>
           <button
@@ -401,6 +485,7 @@ export default function DocumentPickerModal({
                     selectedItems={selectedItems}
                     onToggleDoc={toggleDoc}
                     onTogglePaper={togglePaper}
+                    onToggleRepo={toggleRepo}
                   />
                 ))
               )}
@@ -413,10 +498,10 @@ export default function DocumentPickerModal({
                   <FileText size={11} className="text-red-500" /> Documents
                 </span>
                 <span className="flex items-center gap-1">
-                  <BookOpen size={11} className="text-purple-500" /> Saved Papers
+                  <BookOpen size={11} className="text-purple-500" /> Papers
                 </span>
                 <span className="flex items-center gap-1">
-                  <Download size={11} className="text-blue-500" /> Auto-download PDF
+                  <GitBranch size={11} className="text-orange-500" /> Repos
                 </span>
               </div>
             </div>
@@ -430,6 +515,11 @@ export default function DocumentPickerModal({
                 {paperCount > 0 && (
                   <span className="ml-1 font-normal text-blue-500">
                     ({paperCount} paper{paperCount > 1 ? "s" : ""} will auto-download)
+                  </span>
+                )}
+                {repoCount > 0 && (
+                  <span className="ml-1 font-normal text-orange-500">
+                    ({repoCount} repo{repoCount > 1 ? "s" : ""} will ingest)
                   </span>
                 )}
               </p>
@@ -449,6 +539,8 @@ export default function DocumentPickerModal({
                     >
                       {item.type === "paper" ? (
                         <BookOpen size={14} className="shrink-0 text-purple-500" />
+                      ) : item.type === "repo" ? (
+                        <GitBranch size={14} className="shrink-0 text-orange-500" />
                       ) : item.contentType ? (
                         getFileIcon(item.contentType)
                       ) : (
@@ -459,7 +551,17 @@ export default function DocumentPickerModal({
                       </span>
 
                       {/* Status badge */}
-                      {item.type === "paper" ? (
+                      {item.type === "repo" ? (
+                        item.repo?.has_local_doc ? (
+                          <span className="flex items-center gap-1 text-[11px] text-green-600">
+                            <Check size={12} /> Ingested
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-[11px] text-blue-500">
+                            <GitBranch size={12} /> Will ingest
+                          </span>
+                        )
+                      ) : item.type === "paper" ? (
                         item.paper?.has_local_pdf ? (
                           <span className="flex items-center gap-1 text-[11px] text-green-600">
                             <Check size={12} /> PDF ready
@@ -521,10 +623,20 @@ export default function DocumentPickerModal({
               {embedding ? (
                 <>
                   <Loader2 size={14} className="animate-spin" />
-                  {paperCount > 0 ? "Downloading & Embedding..." : "Embedding..."}
+                  Processing...
                 </>
               ) : (
-                `Confirm & Embed${paperCount > 0 ? ` (${paperCount} download)` : ""}`
+                <>
+                  Confirm & Embed
+                  {(paperCount > 0 || repoCount > 0) && (
+                    <span className="text-xs opacity-80">
+                      {[
+                        paperCount > 0 ? `${paperCount} download` : "",
+                        repoCount > 0 ? `${repoCount} ingest` : "",
+                      ].filter(Boolean).join(", ")}
+                    </span>
+                  )}
+                </>
               )}
             </button>
           </div>

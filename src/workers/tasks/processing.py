@@ -157,8 +157,11 @@ def calculate_trending_scores():
 
 
 async def _calculate_trending():
+    from datetime import datetime
+
     from src.processors.trending import TrendingCalculator
     from src.storage.database import create_async_session_factory
+    from src.storage.repositories.github_repo import GitHubRepository
     from src.storage.repositories.metrics_repo import MetricsRepository
     from src.storage.repositories.paper_repo import PaperRepository
 
@@ -166,6 +169,7 @@ async def _calculate_trending():
     async with async_session_factory() as session:
         metrics_repo = MetricsRepository(session)
         paper_repo = PaperRepository(session)
+        github_repo = GitHubRepository(session)
         calculator = TrendingCalculator(metrics_repo)
 
         # Calculate for recent papers
@@ -173,8 +177,6 @@ async def _calculate_trending():
 
         for paper in papers:
             try:
-                from datetime import datetime
-
                 scores = await calculator.calculate_paper_score(
                     paper_id=paper.id,
                     citation_count=paper.citation_count,
@@ -201,7 +203,38 @@ async def _calculate_trending():
                     }
                 )
             except Exception as e:
-                logger.error("Failed to calculate trending", error=str(e))
+                logger.error("Failed to calculate paper trending", paper_id=str(paper.id), error=str(e))
+
+        # Calculate for repositories
+        repos, _ = await github_repo.list_repos(limit=500, sort_by="stars_count")
+
+        for repo in repos:
+            try:
+                scores = await calculator.calculate_repo_score(
+                    repo_id=repo.id,
+                    stars_count=repo.stars_count,
+                    forks_count=repo.forks_count,
+                    open_issues_count=repo.open_issues_count,
+                    commit_count_30d=repo.commit_count_30d,
+                    last_commit_at=repo.last_commit_at,
+                )
+
+                await metrics_repo.upsert_trending_score(
+                    {
+                        "entity_type": "repository",
+                        "entity_id": repo.id,
+                        "activity_score": scores.activity_score,
+                        "community_score": scores.community_score,
+                        "academic_score": scores.academic_score,
+                        "recency_score": scores.recency_score,
+                        "total_score": scores.total_score,
+                        "category": (repo.topics[0] if repo.topics else None),
+                        "period_start": date.today(),
+                        "period_end": date.today(),
+                    }
+                )
+            except Exception as e:
+                logger.error("Failed to calculate repo trending", repo_id=str(repo.id), error=str(e))
 
         await session.commit()
 

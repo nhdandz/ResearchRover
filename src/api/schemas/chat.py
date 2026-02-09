@@ -6,6 +6,7 @@ from pydantic import BaseModel
 class ConversationCreate(BaseModel):
     title: str | None = None
     mode: str = "global"  # "global" | "documents"
+    context_mode: str = "rag"  # "rag" | "full_context"
 
 
 class ChatMessageResponse(BaseModel):
@@ -24,6 +25,7 @@ class ConversationResponse(BaseModel):
     id: str
     title: str | None = None
     mode: str = "global"
+    context_mode: str = "rag"
     created_at: datetime
     updated_at: datetime
     last_message_preview: str | None = None
@@ -36,6 +38,7 @@ class ConversationDetail(BaseModel):
     id: str
     title: str | None = None
     mode: str = "global"
+    context_mode: str = "rag"
     created_at: datetime
     updated_at: datetime
     messages: list[ChatMessageResponse] = []
@@ -43,6 +46,10 @@ class ConversationDetail(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ContextModeUpdate(BaseModel):
+    context_mode: str  # "rag" | "full_context"
 
 
 class ConversationMessageRequest(BaseModel):

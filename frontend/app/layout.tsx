@@ -8,7 +8,7 @@ import { AuthProvider } from "@/components/AuthProvider";
 import { PersonalSidebar } from "@/components/layout/PersonalSidebar";
 
 export const metadata: Metadata = {
-  title: "RRI - Research Intelligence",
+  title: "RRI",
   description: "Research Intelligence Platform",
 };
 

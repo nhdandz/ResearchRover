@@ -4,14 +4,42 @@ from uuid import UUID
 from pydantic import BaseModel
 
 
+class TopPaperItem(BaseModel):
+    title: str
+    arxiv_id: str | None = None
+    citation_count: int = 0
+    categories: list[str] = []
+
+
+class TopRepoItem(BaseModel):
+    full_name: str
+    description: str | None = None
+    stars_count: int = 0
+    primary_language: str | None = None
+
+
+class TrendingTopicItem(BaseModel):
+    name: str
+    count: int = 0
+    trend: str = "stable"
+
+
 class WeeklyReportResponse(BaseModel):
+    id: str | None = None
+    title: str
+    summary: str | None = None
+    content: str | None = None
+    highlights: list[str] = []
+    top_papers: list[TopPaperItem] = []
+    top_repos: list[TopRepoItem] = []
+    trending_topics: list[TrendingTopicItem] = []
+    new_papers_count: int = 0
+    new_repos_count: int = 0
     period_start: date
     period_end: date
-    new_papers_count: int
-    new_repos_count: int
-    highlights: list[str]
-    trending_topics: list[dict]
-    report_content: str
+    generated_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
 
 
 class ReportGenerationRequest(BaseModel):
@@ -22,7 +50,8 @@ class ReportGenerationRequest(BaseModel):
 
 
 class ReportGenerationResponse(BaseModel):
-    report_id: str
+    report_id: str | None = None
+    task_id: str | None = None
     status: str
     estimated_time_seconds: int = 30
 

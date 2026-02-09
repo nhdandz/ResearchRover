@@ -17,6 +17,8 @@ import {
   Globe,
   FileText,
   Settings2,
+  Search,
+  FileCode,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -30,6 +32,7 @@ import {
   deleteConversation,
   sendConversationMessage,
   setConversationDocuments,
+  updateContextMode,
 } from "@/lib/api";
 import DocumentPickerModal from "@/components/chat/DocumentPickerModal";
 
@@ -53,6 +56,7 @@ interface ConversationItem {
   id: string;
   title: string | null;
   mode: string;
+  context_mode: string;
   created_at: string;
   updated_at: string;
   last_message_preview: string | null;
@@ -65,6 +69,7 @@ export default function ChatPage() {
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<"global" | "documents">("global");
+  const [contextMode, setContextMode] = useState<"rag" | "full_context">("rag");
   const [activeDocumentIds, setActiveDocumentIds] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -127,6 +132,7 @@ export default function ChatPage() {
     setActiveConversationId(null);
     setMessages([]);
     setActiveMode("global");
+    setContextMode("rag");
     setActiveDocumentIds([]);
   };
 
@@ -135,6 +141,7 @@ export default function ChatPage() {
     try {
       const data = await fetchConversation(id);
       setActiveMode(data.mode || "global");
+      setContextMode(data.context_mode || "rag");
       setActiveDocumentIds(data.document_ids || []);
       setMessages(
         data.messages.map((m: any) => ({
@@ -159,6 +166,7 @@ export default function ChatPage() {
         setActiveConversationId(null);
         setMessages([]);
         setActiveMode("global");
+        setContextMode("rag");
         setActiveDocumentIds([]);
       }
     } catch {
@@ -174,6 +182,7 @@ export default function ChatPage() {
     } else {
       // Switch back to global
       setActiveMode("global");
+      setContextMode("rag");
       setActiveDocumentIds([]);
       // If there's an active conversation, create a new global one
       setActiveConversationId(null);
@@ -194,7 +203,7 @@ export default function ChatPage() {
     let convId = activeConversationId;
     if (!convId || activeMode !== "documents") {
       try {
-        const conv = await createConversation(undefined, "documents");
+        const conv = await createConversation(undefined, "documents", contextMode);
         convId = conv.id;
         setActiveConversationId(convId);
         setMessages([]);
@@ -207,8 +216,19 @@ export default function ChatPage() {
     // Set documents on conversation
     try {
       await setConversationDocuments(convId!, docIds);
-    } catch {
-      // silently fail
+    } catch (err) {
+      console.error("Failed to set conversation documents:", err);
+    }
+  };
+
+  const handleContextModeToggle = async (mode: "rag" | "full_context") => {
+    setContextMode(mode);
+    if (activeConversationId) {
+      try {
+        await updateContextMode(activeConversationId, mode);
+      } catch {
+        // silently fail
+      }
     }
   };
 
@@ -229,7 +249,7 @@ export default function ChatPage() {
 
       // Create new conversation if needed
       if (!convId) {
-        const conv = await createConversation(undefined, activeMode);
+        const conv = await createConversation(undefined, activeMode, contextMode);
         convId = conv.id;
         setActiveConversationId(convId);
 
@@ -406,6 +426,36 @@ export default function ChatPage() {
               <Settings2 size={13} />
               Manage Sources
             </button>
+          )}
+
+          {/* Context mode toggle (only in document mode) */}
+          {activeMode === "documents" && activeDocumentIds.length > 0 && (
+            <div className="flex items-center gap-1 rounded-xl border border-border bg-background p-0.5">
+              <button
+                onClick={() => handleContextModeToggle("rag")}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                  contextMode === "rag"
+                    ? "bg-blue-500 text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                title="Retrieve relevant chunks via semantic search"
+              >
+                <Search size={13} />
+                RAG
+              </button>
+              <button
+                onClick={() => handleContextModeToggle("full_context")}
+                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                  contextMode === "full_context"
+                    ? "bg-blue-500 text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                title="Send full document content to LLM"
+              >
+                <FileCode size={13} />
+                Full Context
+              </button>
+            </div>
           )}
         </div>
 

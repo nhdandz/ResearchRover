@@ -13,6 +13,7 @@ SUPPORTED_TYPES = {
     "text/plain",
     "text/markdown",
     "text/csv",
+    "text/x-github-repo",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 }
@@ -35,7 +36,7 @@ class TextExtractor:
             return self._extract_pptx(file_path)
         elif content_type == "text/csv":
             return self._extract_csv(file_path)
-        elif content_type in ("text/plain", "text/markdown"):
+        elif content_type in ("text/plain", "text/markdown", "text/x-github-repo"):
             return self._extract_text(file_path)
         else:
             raise ValueError(f"Unsupported content type: {content_type}")

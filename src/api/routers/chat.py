@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from src.api.deps import get_current_user, get_db
 from src.api.schemas.chat import (
     ChatMessageResponse,
+    ContextModeUpdate,
     ConversationCreate,
     ConversationDetail,
     ConversationMessageRequest,
@@ -25,6 +26,7 @@ from src.rag.retriever import HybridRetriever
 from src.storage.models.conversation import ChatMessage, Conversation
 from src.storage.models.conversation_document import ConversationDocument
 from src.storage.models.document import Document
+from src.storage.models.document_embedding import DocumentEmbedding
 from src.storage.models.user import User
 from src.storage.vector.qdrant_client import VectorStore
 
@@ -89,6 +91,7 @@ async def list_conversations(
                 id=str(conv.id),
                 title=conv.title,
                 mode=conv.chat_mode,
+                context_mode=conv.context_mode,
                 created_at=conv.created_at,
                 updated_at=conv.updated_at,
                 last_message_preview=preview,
@@ -103,7 +106,7 @@ async def create_conversation(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    conv = Conversation(user_id=user.id, title=body.title, chat_mode=body.mode)
+    conv = Conversation(user_id=user.id, title=body.title, chat_mode=body.mode, context_mode=body.context_mode)
     db.add(conv)
     await db.flush()
     await db.refresh(conv)
@@ -112,6 +115,7 @@ async def create_conversation(
         id=str(conv.id),
         title=conv.title,
         mode=conv.chat_mode,
+        context_mode=conv.context_mode,
         created_at=conv.created_at,
         updated_at=conv.updated_at,
         last_message_preview=None,
@@ -147,6 +151,7 @@ async def get_conversation(
         id=str(conv.id),
         title=conv.title,
         mode=conv.chat_mode,
+        context_mode=conv.context_mode,
         created_at=conv.created_at,
         updated_at=conv.updated_at,
         document_ids=document_ids,
@@ -218,8 +223,13 @@ async def send_conversation_message(
 
     try:
         if conv.chat_mode == "documents":
-            # Document mode — search only user_docs collection
-            rag_response = await _query_document_mode(rag, body.question, str(user.id))
+            if conv.context_mode == "full_context":
+                rag_response = await _query_full_context_mode(
+                    rag, body.question, str(user.id), conv.id, db
+                )
+            else:
+                # Document mode — search only user_docs collection
+                rag_response = await _query_document_mode(rag, body.question, str(user.id))
         else:
             # Global mode — default RAG over papers/repos/chunks
             rag_response = await rag.query(question=body.question, filters=body.filters)
@@ -329,6 +339,200 @@ async def _query_document_mode(rag: RAGPipeline, question: str, user_id: str):
         answer=answer,
         sources=sources,
         confidence=rag._calculate_confidence(reranked),
+    )
+
+
+FULL_CONTEXT_PROMPT = """You are a knowledgeable assistant. Answer the question based on the provided documents/code.
+
+Rules:
+1. Use information from the provided content to answer thoroughly
+2. Reference specific files or sections when relevant
+3. If the content doesn't contain the answer, say so
+4. Be concise but thorough
+
+Content:
+{context}
+
+Question: {question}
+
+Answer:"""
+
+FULL_CONTEXT_CHAR_LIMIT = 100_000
+
+
+async def _query_full_context_mode(
+    rag: RAGPipeline,
+    question: str,
+    user_id: str,
+    conversation_id: uuid.UUID,
+    db: AsyncSession,
+):
+    """Query LLM with full document content instead of RAG retrieval."""
+    from src.core.logging import get_logger
+    from src.rag.pipeline import RAGResponse
+    from src.services.file_storage import FileStorageService
+    from src.services.text_extractor import TextExtractor
+
+    logger = get_logger(__name__)
+
+    # 1. Get document IDs for this conversation
+    doc_result = await db.execute(
+        select(ConversationDocument.document_id).where(
+            ConversationDocument.conversation_id == conversation_id
+        )
+    )
+    doc_ids = doc_result.scalars().all()
+
+    logger.info(
+        "Full context mode: querying documents",
+        conversation_id=str(conversation_id),
+        doc_ids_count=len(doc_ids),
+        doc_ids=[str(d) for d in doc_ids],
+    )
+
+    if not doc_ids:
+        # Fallback: use all embedded documents for this user
+        logger.warning(
+            "No ConversationDocument records found, falling back to all user embedded docs",
+            conversation_id=str(conversation_id),
+            user_id=user_id,
+        )
+        fallback_result = await db.execute(
+            select(DocumentEmbedding.document_id).where(
+                DocumentEmbedding.user_id == user_id,
+                DocumentEmbedding.status == "completed",
+            )
+        )
+        doc_ids = fallback_result.scalars().all()
+
+        if not doc_ids:
+            return RAGResponse(
+                answer="No documents are attached to this conversation. Please add documents via 'Manage Sources' first.",
+                sources=[],
+                confidence=0.0,
+            )
+
+    # 2. Load documents and read file content
+    file_storage = FileStorageService()
+    extractor = TextExtractor()
+    context_parts = []
+    sources = []
+
+    errors = []
+    for doc_id in doc_ids:
+        doc_result = await db.execute(
+            select(Document).where(Document.id == doc_id)
+        )
+        doc = doc_result.scalar_one_or_none()
+        if not doc:
+            errors.append(f"Document {doc_id} not found in database")
+            continue
+
+        try:
+            abs_path = file_storage.get_absolute_path(doc.storage_path)
+            logger.info(
+                "Reading document for full context",
+                document_id=str(doc_id),
+                path=abs_path,
+                content_type=doc.content_type,
+            )
+
+            import os
+            if not os.path.exists(abs_path):
+                errors.append(f"{doc.original_filename}: file not found at {abs_path}")
+                continue
+
+            content = extractor.extract(abs_path, doc.content_type)
+            if not content or not content.strip():
+                errors.append(f"{doc.original_filename}: extracted text is empty")
+                continue
+
+            context_parts.append(f"## Document: {doc.original_filename}\n{content}")
+            sources.append({
+                "id": str(doc.id),
+                "type": "document",
+                "title": doc.original_filename,
+                "url": None,
+                "relevance_score": 1.0,
+            })
+        except Exception as e:
+            logger.error(
+                "Failed to read document for full context",
+                document_id=str(doc_id),
+                storage_path=doc.storage_path,
+                content_type=doc.content_type,
+                error=str(e),
+            )
+            errors.append(f"{doc.original_filename}: {str(e)}")
+
+    if not context_parts:
+        error_detail = "\n".join(f"- {e}" for e in errors) if errors else "Unknown error"
+        return RAGResponse(
+            answer=f"Could not read any of the attached documents.\n\nErrors:\n{error_detail}",
+            sources=[],
+            confidence=0.0,
+        )
+
+    # 3. Join and truncate
+    full_context = "\n---\n".join(context_parts)
+    truncated = False
+    if len(full_context) > FULL_CONTEXT_CHAR_LIMIT:
+        full_context = full_context[:FULL_CONTEXT_CHAR_LIMIT]
+        truncated = True
+
+    # 4. Build prompt and call LLM
+    prompt = FULL_CONTEXT_PROMPT.format(context=full_context, question=question)
+
+    try:
+        answer = await rag.generator.llm.generate(prompt, max_tokens=2000, temperature=0.3)
+    except Exception as e:
+        logger.error("LLM generation failed in full context mode", error=str(e))
+        answer = "The language model is currently unavailable. Please try again later."
+
+    if truncated:
+        answer += "\n\n*Note: Document content was truncated due to size limits. Consider using RAG mode for large documents.*"
+
+    return RAGResponse(answer=answer, sources=sources, confidence=1.0)
+
+
+@router.patch(
+    "/conversations/{conversation_id}/context-mode",
+    response_model=ConversationResponse,
+)
+async def update_context_mode(
+    conversation_id: uuid.UUID,
+    body: ContextModeUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the context mode (rag / full_context) of a conversation."""
+    if body.context_mode not in ("rag", "full_context"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="context_mode must be 'rag' or 'full_context'",
+        )
+
+    result = await db.execute(
+        select(Conversation).where(
+            Conversation.id == conversation_id, Conversation.user_id == user.id
+        )
+    )
+    conv = result.scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    conv.context_mode = body.context_mode
+    await db.flush()
+    await db.refresh(conv)
+
+    return ConversationResponse(
+        id=str(conv.id),
+        title=conv.title,
+        mode=conv.chat_mode,
+        context_mode=conv.context_mode,
+        created_at=conv.created_at,
+        updated_at=conv.updated_at,
+        last_message_preview=None,
     )
 
 

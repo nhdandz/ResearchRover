@@ -1,10 +1,12 @@
 import uuid
 from datetime import date, timedelta
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.storage.models.metrics import MetricsHistory, TrendingScore
+from src.storage.models.paper import Paper
+from src.storage.models.repository import Repository
 
 
 class MetricsRepository:
@@ -131,9 +133,10 @@ class MetricsRepository:
         self,
         entity_type: str | None = None,
         category: str | None = None,
+        skip: int = 0,
         limit: int = 20,
-    ) -> list[TrendingScore]:
-        query = select(TrendingScore).order_by(TrendingScore.total_score.desc())
+    ) -> tuple[list[TrendingScore], int]:
+        base_query = select(TrendingScore)
 
         filters = []
         if entity_type:
@@ -141,11 +144,139 @@ class MetricsRepository:
         if category:
             filters.append(TrendingScore.category == category)
         if filters:
-            query = query.where(and_(*filters))
+            base_query = base_query.where(and_(*filters))
 
-        query = query.limit(limit)
+        count_result = await self.session.execute(
+            select(func.count()).select_from(base_query.subquery())
+        )
+        total = count_result.scalar() or 0
+
+        query = base_query.order_by(TrendingScore.total_score.desc()).offset(skip).limit(limit)
         result = await self.session.execute(query)
-        return list(result.scalars().all())
+        return list(result.scalars().all()), total
+
+    async def get_trending_papers_with_search(
+        self,
+        category: str | None = None,
+        search: str | None = None,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[tuple[TrendingScore, Paper]], int]:
+        """Get trending papers joined with Paper for search filtering."""
+        from sqlalchemy import or_
+
+        base_query = (
+            select(TrendingScore, Paper)
+            .join(Paper, TrendingScore.entity_id == Paper.id)
+            .where(TrendingScore.entity_type == "paper")
+        )
+
+        if category:
+            base_query = base_query.where(TrendingScore.category == category)
+        if search:
+            search_filter = f"%{search}%"
+            base_query = base_query.where(
+                or_(
+                    Paper.title.ilike(search_filter),
+                    Paper.abstract.ilike(search_filter),
+                    Paper.arxiv_id.ilike(search_filter),
+                )
+            )
+
+        count_result = await self.session.execute(
+            select(func.count()).select_from(base_query.subquery())
+        )
+        total = count_result.scalar() or 0
+
+        query = base_query.order_by(TrendingScore.total_score.desc()).offset(skip).limit(limit)
+        result = await self.session.execute(query)
+        rows = result.all()
+        return rows, total
+
+    async def get_trending_with_language(
+        self,
+        language: str | None = None,
+        topics: list[str] | None = None,
+        search: str | None = None,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[tuple[TrendingScore, Repository]], int]:
+        """Get trending repos joined with Repository for language/topic/search filtering."""
+        base_query = (
+            select(TrendingScore, Repository)
+            .join(Repository, TrendingScore.entity_id == Repository.id)
+            .where(TrendingScore.entity_type == "repository")
+        )
+
+        if language:
+            base_query = base_query.where(Repository.primary_language == language)
+        if topics:
+            for t in topics:
+                base_query = base_query.where(Repository.topics.any(t))
+        if search:
+            search_filter = f"%{search}%"
+            from sqlalchemy import or_
+            base_query = base_query.where(
+                or_(
+                    Repository.full_name.ilike(search_filter),
+                    Repository.description.ilike(search_filter),
+                )
+            )
+
+        count_result = await self.session.execute(
+            select(func.count()).select_from(base_query.subquery())
+        )
+        total = count_result.scalar() or 0
+
+        query = base_query.order_by(TrendingScore.total_score.desc()).offset(skip).limit(limit)
+        result = await self.session.execute(query)
+        rows = result.all()
+        return rows, total
+
+    async def get_trending_filters(self) -> dict:
+        """Get distinct categories and languages available in trending data."""
+        # Distinct categories from papers
+        cat_result = await self.session.execute(
+            select(TrendingScore.category)
+            .where(
+                and_(
+                    TrendingScore.entity_type == "paper",
+                    TrendingScore.category.isnot(None),
+                )
+            )
+            .distinct()
+        )
+        categories = sorted([r[0] for r in cat_result.all()])
+
+        # Distinct languages from repos via join
+        lang_result = await self.session.execute(
+            select(Repository.primary_language)
+            .join(TrendingScore, TrendingScore.entity_id == Repository.id)
+            .where(
+                and_(
+                    TrendingScore.entity_type == "repository",
+                    Repository.primary_language.isnot(None),
+                )
+            )
+            .distinct()
+        )
+        languages = sorted([r[0] for r in lang_result.all()])
+
+        # Distinct topics from repos via join + unnest
+        topic_result = await self.session.execute(
+            select(func.unnest(Repository.topics).label("topic"))
+            .join(TrendingScore, TrendingScore.entity_id == Repository.id)
+            .where(
+                and_(
+                    TrendingScore.entity_type == "repository",
+                    Repository.topics.isnot(None),
+                )
+            )
+            .distinct()
+        )
+        topics = sorted([r[0] for r in topic_result.all()])
+
+        return {"categories": categories, "languages": languages, "topics": topics}
 
     async def upsert_trending_score(self, score_data: dict) -> TrendingScore:
         existing = await self.session.execute(

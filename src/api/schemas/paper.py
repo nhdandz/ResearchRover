@@ -50,3 +50,168 @@ class LinkResponse(BaseModel):
     discovered_via: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+# ── Analytics ──
+
+class AuthorEntry(BaseModel):
+    name: str
+    affiliation: str | None = None
+    paper_count: int
+    total_citations: int
+
+
+class AuthorAnalyticsResponse(BaseModel):
+    top_by_papers: list[AuthorEntry]
+    top_by_citations: list[AuthorEntry]
+    affiliation_distribution: dict[str, int]
+
+
+class KeywordFrequency(BaseModel):
+    keyword: str
+    count: int
+
+
+class KeywordAnalyticsResponse(BaseModel):
+    keywords: list[KeywordFrequency]
+    topics: list[KeywordFrequency]
+
+
+# ── Network ──
+
+class NetworkNode(BaseModel):
+    id: str
+    label: str
+    paper_count: int
+    affiliation: str | None = None
+
+
+class NetworkEdge(BaseModel):
+    source: str
+    target: str
+    weight: int
+
+
+class CoAuthorNetworkResponse(BaseModel):
+    nodes: list[NetworkNode]
+    edges: list[NetworkEdge]
+
+
+# ── Trends ──
+
+class TrendPoint(BaseModel):
+    period: str
+    keyword: str
+    count: int
+
+
+class EmergingKeyword(BaseModel):
+    keyword: str
+    recent_count: int
+    previous_count: int
+    growth_rate: float
+
+
+class KeywordTrendResponse(BaseModel):
+    trends: list[TrendPoint]
+    top_keywords: list[str]
+    emerging: list[EmergingKeyword]
+
+
+# ── Topic Co-occurrence Network ──
+
+class TopicCoOccurrenceResponse(BaseModel):
+    nodes: list[NetworkNode]
+    edges: list[NetworkEdge]
+
+
+# ── Citation Timeline ──
+
+class CitationTimelinePoint(BaseModel):
+    year: str
+    author: str
+    citations: int
+
+
+class CitationTimelineResponse(BaseModel):
+    data: list[CitationTimelinePoint]
+    authors: list[str]
+
+
+# ── Category Heatmap ──
+
+class CategoryYearCell(BaseModel):
+    category: str
+    year: str
+    count: int
+
+
+class CategoryHeatmapResponse(BaseModel):
+    cells: list[CategoryYearCell]
+    categories: list[str]
+    years: list[str]
+
+
+# ── Topic Correlation ──
+
+class TopicCorrelationCell(BaseModel):
+    topic_a: str
+    topic_b: str
+    count: int
+
+
+class TopicCorrelationResponse(BaseModel):
+    cells: list[TopicCorrelationCell]
+    topics: list[str]
+
+
+# ── Institution Ranking ──
+
+class InstitutionEntry(BaseModel):
+    name: str
+    paper_count: int
+    total_citations: int
+    avg_citations: float
+    author_count: int
+
+
+class InstitutionRankingResponse(BaseModel):
+    institutions: list[InstitutionEntry]
+
+
+# ── Author Comparison ──
+
+class AuthorProfile(BaseModel):
+    name: str
+    paper_count: int
+    total_citations: int
+    avg_citations: float
+    topics: list[str]
+    first_year: int | None = None
+    last_year: int | None = None
+    affiliation: str | None = None
+
+
+class AuthorComparisonResponse(BaseModel):
+    authors: list[AuthorProfile]
+
+
+# ── Research Landscape ──
+
+class LandscapePoint(BaseModel):
+    topic: str
+    avg_year: float
+    avg_citations: float
+    paper_count: int
+
+
+class ResearchLandscapeResponse(BaseModel):
+    points: list[LandscapePoint]
+
+
+# ── Import ──
+
+class ImportResultResponse(BaseModel):
+    imported: int
+    skipped: int
+    errors: list[str]

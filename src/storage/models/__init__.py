@@ -10,7 +10,9 @@ from src.storage.models.metrics import CrawlJob, MetricsHistory, TrendingScore
 from src.storage.models.paper import Paper
 from src.storage.models.repository import Repository
 from src.storage.models.subscription import ApiRateLimit, Subscription
+from src.storage.models.tech_radar import TechRadarSnapshot
 from src.storage.models.user import User
+from src.storage.models.weekly_report import WeeklyReport
 
 __all__ = [
     "User",
@@ -30,4 +32,6 @@ __all__ = [
     "ChatMessage",
     "DocumentEmbedding",
     "ConversationDocument",
+    "TechRadarSnapshot",
+    "WeeklyReport",
 ]

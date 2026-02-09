@@ -12,33 +12,49 @@ Trending Repositories ({repo_count} total):
 Notable Changes:
 {changes_summary}
 
-Write a concise weekly report covering:
-1. Key highlights (2-3 most important developments)
-2. Trending topics and emerging technologies
-3. Notable new papers and their implications
-4. Active repositories and community momentum
+You MUST respond with valid JSON only (no markdown, no explanation).
+The JSON must have this exact structure:
+{{
+    "title": "Weekly AI Research Digest: {period_start} - {period_end}",
+    "summary": "A 2-3 sentence overview of the most important developments this week",
+    "highlights": ["highlight 1", "highlight 2", "highlight 3"],
+    "content": "A detailed markdown report covering:\\n1. Key highlights\\n2. Trending topics and emerging technologies\\n3. Notable new papers and their implications\\n4. Active repositories and community momentum"
+}}
 
-Format as markdown.
+Rules:
+- "highlights" must be an array of 3-5 short strings (1 sentence each)
+- "content" must be a detailed markdown-formatted report (500+ words)
+- "summary" must be a concise paragraph (2-3 sentences)
+- "title" should be descriptive and include the date range
+- Use \\n for newlines in the content field
 """
 
 TECH_RADAR_PROMPT = """
-Based on the following research trends and repository activity data,
-categorize technologies into a Tech Radar format:
+You are an AI/ML technology analyst. Based on the data below from research papers and open-source repositories,
+create a Tech Radar that categorizes SPECIFIC TECHNOLOGIES, FRAMEWORKS, LIBRARIES, and TOOLS (NOT programming languages).
+
+IMPORTANT RULES:
+- Do NOT include programming languages (Python, JavaScript, Go, etc.) — they are too broad
+- Focus on specific frameworks, libraries, tools, techniques, and architectures
+  Examples: PyTorch, LangChain, RAG, Transformer, RLHF, Vector Databases, LoRA, vLLM, Ollama, FastAPI, Next.js
+- Each item must be a concrete technology that a developer would choose to adopt or not
+- Aim for 4-6 items per ring (16-24 total)
+- Base your analysis on the evidence in the data: repo stars, growth, paper citations, and research trends
 
 Data:
 {data}
 
-Categorize each technology into one of:
-- ADOPT: Proven, recommended for use
-- TRIAL: Worth exploring, showing promise
-- ASSESS: Interesting, keep an eye on
-- HOLD: Declining or replaced by better alternatives
+Ring definitions:
+- ADOPT: Mature, widely used, strong community. High stars, many repos, active development. Recommended for production.
+- TRIAL: Gaining traction, promising results. Growing stars/citations. Worth investing time to evaluate.
+- ASSESS: Early stage but interesting. New papers, few but fast-growing repos. Monitor for potential.
+- HOLD: Declining activity, being superseded. Fewer new repos/papers, stagnant growth.
 
-Respond with JSON:
+Respond ONLY with valid JSON (no markdown, no explanation):
 {{
-    "adopt": [{{"name": "...", "reason": "..."}}],
-    "trial": [{{"name": "...", "reason": "..."}}],
-    "assess": [{{"name": "...", "reason": "..."}}],
-    "hold": [{{"name": "...", "reason": "..."}}]
+    "adopt": [{{"name": "technology name", "reason": "1-sentence evidence-based reason"}}],
+    "trial": [{{"name": "technology name", "reason": "1-sentence evidence-based reason"}}],
+    "assess": [{{"name": "technology name", "reason": "1-sentence evidence-based reason"}}],
+    "hold": [{{"name": "technology name", "reason": "1-sentence evidence-based reason"}}]
 }}
 """

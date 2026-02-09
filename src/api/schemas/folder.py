@@ -98,3 +98,9 @@ class FolderContentsResponse(BaseModel):
     subfolders: list[FolderResponse]
     bookmarks: list[BookmarkResponse]
     documents: list[DocumentResponse]
+
+
+class DocumentContentResponse(BaseModel):
+    content: str
+    content_type: str
+    filename: str

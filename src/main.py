@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from src.api.routers import alerts, auth, bookmarks, chat, document_chat, documents, folders, health, papers, reports, repositories, search, trending
 from src.core.config import get_settings
@@ -35,11 +36,14 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],
+        allow_origins=["*"],  # Allow all origins for tunnel access
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Trust proxy headers for correct HTTPS redirects through Cloudflare tunnel
+    app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
     # Register routers
     app.include_router(health.router)

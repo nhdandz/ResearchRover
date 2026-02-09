@@ -38,6 +38,7 @@ class TrendingPaperResponse(BaseModel):
     citation_count: int = 0
     trending_score: float
     category: str | None = None
+    primary_category: str | None = None
 
 
 class TrendingRepoResponse(BaseModel):
@@ -45,8 +46,15 @@ class TrendingRepoResponse(BaseModel):
     full_name: str
     description: str | None = None
     stars_count: int = 0
+    forks_count: int = 0
     trending_score: float
     primary_language: str | None = None
+
+
+class TrendingFiltersResponse(BaseModel):
+    categories: list[str] = []
+    languages: list[str] = []
+    topics: list[str] = []
 
 
 class TechRadarItem(BaseModel):

@@ -79,6 +79,12 @@ _beat_schedule = {
         "schedule": crontab(minute=0, hour=8, day_of_week=1),
         "options": {"queue": "reporting"},
     },
+    # Generate tech radar on Mondays (after weekly report)
+    "generate-tech-radar": {
+        "task": "src.workers.tasks.reporting.generate_tech_radar",
+        "schedule": crontab(minute=30, hour=8, day_of_week=1),
+        "options": {"queue": "reporting"},
+    },
 }
 
 # GitHub/Repo schedules - disabled by default during initial collection

@@ -21,6 +21,8 @@ import {
   File,
   Image,
   Code,
+  Bookmark,
+  Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/AuthProvider";
@@ -34,8 +36,10 @@ import {
   deleteDocument,
   uploadDocument,
   downloadDocument,
+  savePaperToFolder,
 } from "@/lib/api";
 import { BookmarkDialog } from "@/components/BookmarkDialog";
+import FileViewerModal from "@/components/FileViewerModal";
 
 // ── Types ──
 
@@ -149,6 +153,8 @@ export default function MyLibraryPage() {
   const [resolvedTitles, setResolvedTitles] = useState<Record<string, string>>({});
   const [uploads, setUploads] = useState<UploadProgress[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [viewingDocument, setViewingDocument] = useState<DocumentItem | null>(null);
+  const [savingPaperId, setSavingPaperId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -332,6 +338,20 @@ export default function MyLibraryPage() {
     } catch {}
   };
 
+  const handleSavePaper = async (bookmark: BookmarkItem) => {
+    if (!bookmark.item_id || !bookmark.folder_id || savingPaperId) return;
+    setSavingPaperId(bookmark.item_id);
+    try {
+      await savePaperToFolder(bookmark.item_id, bookmark.folder_id);
+      // Refresh folder contents to show the new document
+      if (folderId) loadFolderContents(folderId);
+    } catch {
+      // silently fail
+    } finally {
+      setSavingPaperId(null);
+    }
+  };
+
   const getBookmarkTitle = (b: BookmarkItem) => {
     if (b.external_title) return b.external_title;
     if (resolvedTitles[b.id]) return resolvedTitles[b.id];
@@ -421,15 +441,12 @@ export default function MyLibraryPage() {
 
   const totalItems = subfolders.length + bookmarks.length + documents.length;
 
-  // Merge bookmarks + documents sorted by created_at desc
-  const unifiedItems: Array<{
-    type: "bookmark" | "document";
-    item: BookmarkItem | DocumentItem;
-    date: string;
-  }> = [
-    ...bookmarks.map((b) => ({ type: "bookmark" as const, item: b, date: b.created_at })),
-    ...documents.map((d) => ({ type: "document" as const, item: d, date: d.created_at })),
-  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  const sortedDocuments = [...documents].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+  const sortedBookmarks = [...bookmarks].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
 
   return (
     <div
@@ -578,42 +595,256 @@ export default function MyLibraryPage() {
             </div>
           )}
 
-          {/* Files section (bookmarks + documents unified) */}
-          {unifiedItems.length > 0 && (
+          {/* My Files section */}
+          {sortedDocuments.length > 0 && (
             <div>
-              <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Files
+              <h3 className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <Upload size={12} />
+                My Files
+                <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium normal-case">
+                  {sortedDocuments.length}
+                </span>
               </h3>
               {viewMode === "list" ? (
                 <div className="space-y-1.5">
-                  {unifiedItems.map((entry) => {
-                    if (entry.type === "bookmark") {
-                      const b = entry.item as BookmarkItem;
-                      const cfg =
-                        bookmarkTypeConfig[b.item_type] || bookmarkTypeConfig.external;
-                      const Icon = cfg.icon;
-                      const link = getBookmarkLink(b);
-                      return (
-                        <div
-                          key={`bm-${b.id}`}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            setContextMenu({
-                              x: e.clientX,
-                              y: e.clientY,
-                              type: "bookmark",
-                              item: b,
-                            });
-                          }}
-                          className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:bg-muted/50"
+                  {sortedDocuments.map((d) => {
+                    const fileInfo = getFileIcon(d.content_type);
+                    const FileIcon = fileInfo.icon;
+                    return (
+                      <div
+                        key={`doc-${d.id}`}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            type: "document",
+                            item: d,
+                          });
+                        }}
+                        className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:bg-muted/50"
+                      >
+                        <FileIcon size={16} className={cn("shrink-0", fileInfo.color)} />
+                        <div className="flex-1 min-w-0">
+                          <button
+                            onClick={() => setViewingDocument(d)}
+                            className="text-[13px] font-medium text-foreground hover:text-primary hover:underline text-left truncate block max-w-full"
+                          >
+                            {d.original_filename}
+                          </button>
+                          {d.note && (
+                            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground truncate">
+                              <StickyNote size={10} className="shrink-0" /> {d.note}
+                            </p>
+                          )}
+                        </div>
+                        <span className="shrink-0 text-[11px] text-muted-foreground w-20 text-right">
+                          {formatFileSize(d.file_size)}
+                        </span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground w-16 text-right">
+                          {timeAgo(d.created_at)}
+                        </span>
+                        <button
+                          onClick={() => handleDownload(d)}
+                          className="shrink-0 text-muted-foreground transition-colors hover:text-primary"
                         >
-                          <Icon size={16} className={cn("shrink-0", cfg.color)} />
+                          <Download size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteDocument(d.id)}
+                          className="shrink-0 text-muted-foreground transition-colors hover:text-red-500"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {sortedDocuments.map((d) => {
+                    const fileInfo = getFileIcon(d.content_type);
+                    const FileIcon = fileInfo.icon;
+                    return (
+                      <div
+                        key={`doc-${d.id}`}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            type: "document",
+                            item: d,
+                          });
+                        }}
+                        className="group relative rounded-xl border border-border bg-card p-4 transition-colors hover:bg-muted/50"
+                      >
+                        <div className="flex items-start gap-2">
+                          <FileIcon size={16} className={cn("mt-0.5 shrink-0", fileInfo.color)} />
+                          <div className="flex-1 min-w-0">
+                            <button
+                              onClick={() => setViewingDocument(d)}
+                              className="text-[13px] font-medium text-foreground hover:text-primary text-left line-clamp-2"
+                            >
+                              {d.original_filename}
+                            </button>
+                            {d.note && (
+                              <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2">
+                                {d.note}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between">
+                          <span className="text-[10px] text-muted-foreground">
+                            {formatFileSize(d.file_size)}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-muted-foreground">
+                              {timeAgo(d.created_at)}
+                            </span>
+                            <button
+                              onClick={() => handleDownload(d)}
+                              className="opacity-0 group-hover:opacity-100 text-muted-foreground transition-all hover:text-primary"
+                            >
+                              <Download size={13} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteDocument(d.id)}
+                              className="opacity-0 group-hover:opacity-100 text-muted-foreground transition-all hover:text-red-500"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Bookmarks section */}
+          {sortedBookmarks.length > 0 && (
+            <div>
+              <h3 className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <Bookmark size={12} />
+                Bookmarks
+                <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium normal-case">
+                  {sortedBookmarks.length}
+                </span>
+              </h3>
+              {viewMode === "list" ? (
+                <div className="space-y-1.5">
+                  {sortedBookmarks.map((b) => {
+                    const cfg = bookmarkTypeConfig[b.item_type] || bookmarkTypeConfig.external;
+                    const Icon = cfg.icon;
+                    const link = getBookmarkLink(b);
+                    return (
+                      <div
+                        key={`bm-${b.id}`}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            type: "bookmark",
+                            item: b,
+                          });
+                        }}
+                        className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:bg-muted/50"
+                      >
+                        <Icon size={16} className={cn("shrink-0", cfg.color)} />
+                        <div className="flex-1 min-w-0">
+                          {link ? (
+                            link.startsWith("/") ? (
+                              <button
+                                onClick={() => router.push(link)}
+                                className="text-[13px] font-medium text-foreground hover:text-primary hover:underline text-left truncate block max-w-full"
+                              >
+                                {getBookmarkTitle(b)}
+                              </button>
+                            ) : (
+                              <a
+                                href={link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-[13px] font-medium text-foreground hover:text-primary hover:underline truncate"
+                              >
+                                {getBookmarkTitle(b)}
+                                <ExternalLink size={10} className="shrink-0" />
+                              </a>
+                            )
+                          ) : (
+                            <span className="text-[13px] font-medium text-foreground truncate block">
+                              {getBookmarkTitle(b)}
+                            </span>
+                          )}
+                          {b.note && (
+                            <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground truncate">
+                              <StickyNote size={10} className="shrink-0" /> {b.note}
+                            </p>
+                          )}
+                        </div>
+                        <span className="shrink-0 rounded-lg bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          {cfg.label}
+                        </span>
+                        <span className="shrink-0 text-[11px] text-muted-foreground w-16 text-right">
+                          {timeAgo(b.created_at)}
+                        </span>
+                        {b.item_type === "paper" && b.item_id && (
+                          <button
+                            onClick={() => handleSavePaper(b)}
+                            disabled={savingPaperId === b.item_id}
+                            className="shrink-0 text-muted-foreground transition-colors hover:text-primary disabled:opacity-50"
+                            title="Download PDF to folder"
+                          >
+                            {savingPaperId === b.item_id ? (
+                              <div className="h-3.5 w-3.5 animate-spin rounded-full border-[1.5px] border-muted border-t-primary" />
+                            ) : (
+                              <Download size={14} />
+                            )}
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDeleteBookmark(b.id)}
+                          className="shrink-0 text-muted-foreground transition-colors hover:text-red-500"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {sortedBookmarks.map((b) => {
+                    const cfg = bookmarkTypeConfig[b.item_type] || bookmarkTypeConfig.external;
+                    const Icon = cfg.icon;
+                    const link = getBookmarkLink(b);
+                    return (
+                      <div
+                        key={`bm-${b.id}`}
+                        onContextMenu={(e) => {
+                          e.preventDefault();
+                          setContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            type: "bookmark",
+                            item: b,
+                          });
+                        }}
+                        className="group relative rounded-xl border border-border bg-card p-4 transition-colors hover:bg-muted/50"
+                      >
+                        <div className="flex items-start gap-2">
+                          <Icon size={16} className={cn("mt-0.5 shrink-0", cfg.color)} />
                           <div className="flex-1 min-w-0">
                             {link ? (
                               link.startsWith("/") ? (
                                 <button
                                   onClick={() => router.push(link)}
-                                  className="text-[13px] font-medium text-foreground hover:text-primary hover:underline text-left truncate block max-w-full"
+                                  className="text-[13px] font-medium text-foreground hover:text-primary text-left line-clamp-2"
                                 >
                                   {getBookmarkTitle(b)}
                                 </button>
@@ -622,235 +853,55 @@ export default function MyLibraryPage() {
                                   href={link}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="flex items-center gap-1 text-[13px] font-medium text-foreground hover:text-primary hover:underline truncate"
+                                  className="text-[13px] font-medium text-foreground hover:text-primary line-clamp-2"
                                 >
                                   {getBookmarkTitle(b)}
-                                  <ExternalLink size={10} className="shrink-0" />
                                 </a>
                               )
                             ) : (
-                              <span className="text-[13px] font-medium text-foreground truncate block">
+                              <span className="text-[13px] font-medium text-foreground line-clamp-2">
                                 {getBookmarkTitle(b)}
                               </span>
                             )}
                             {b.note && (
-                              <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground truncate">
-                                <StickyNote size={10} className="shrink-0" /> {b.note}
+                              <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2">
+                                {b.note}
                               </p>
                             )}
                           </div>
-                          <span className="shrink-0 rounded-lg bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                        </div>
+                        <div className="mt-3 flex items-center justify-between">
+                          <span className="rounded-lg bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                             {cfg.label}
                           </span>
-                          <span className="shrink-0 text-[11px] text-muted-foreground w-16 text-right">
-                            {timeAgo(b.created_at)}
-                          </span>
-                          <button
-                            onClick={() => handleDeleteBookmark(b.id)}
-                            className="shrink-0 text-muted-foreground transition-colors hover:text-red-500"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      );
-                    } else {
-                      const d = entry.item as DocumentItem;
-                      const fileInfo = getFileIcon(d.content_type);
-                      const FileIcon = fileInfo.icon;
-                      return (
-                        <div
-                          key={`doc-${d.id}`}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            setContextMenu({
-                              x: e.clientX,
-                              y: e.clientY,
-                              type: "document",
-                              item: d,
-                            });
-                          }}
-                          className="flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:bg-muted/50"
-                        >
-                          <FileIcon
-                            size={16}
-                            className={cn("shrink-0", fileInfo.color)}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <button
-                              onClick={() => handleDownload(d)}
-                              className="text-[13px] font-medium text-foreground hover:text-primary hover:underline text-left truncate block max-w-full"
-                            >
-                              {d.original_filename}
-                            </button>
-                            {d.note && (
-                              <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground truncate">
-                                <StickyNote size={10} className="shrink-0" /> {d.note}
-                              </p>
-                            )}
-                          </div>
-                          <span className="shrink-0 text-[11px] text-muted-foreground w-20 text-right">
-                            {formatFileSize(d.file_size)}
-                          </span>
-                          <span className="shrink-0 text-[11px] text-muted-foreground w-16 text-right">
-                            {timeAgo(d.created_at)}
-                          </span>
-                          <button
-                            onClick={() => handleDownload(d)}
-                            className="shrink-0 text-muted-foreground transition-colors hover:text-primary"
-                          >
-                            <Download size={14} />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteDocument(d.id)}
-                            className="shrink-0 text-muted-foreground transition-colors hover:text-red-500"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      );
-                    }
-                  })}
-                </div>
-              ) : (
-                /* Grid view */
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  {unifiedItems.map((entry) => {
-                    if (entry.type === "bookmark") {
-                      const b = entry.item as BookmarkItem;
-                      const cfg =
-                        bookmarkTypeConfig[b.item_type] || bookmarkTypeConfig.external;
-                      const Icon = cfg.icon;
-                      const link = getBookmarkLink(b);
-                      return (
-                        <div
-                          key={`bm-${b.id}`}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            setContextMenu({
-                              x: e.clientX,
-                              y: e.clientY,
-                              type: "bookmark",
-                              item: b,
-                            });
-                          }}
-                          className="group relative rounded-xl border border-border bg-card p-4 transition-colors hover:bg-muted/50"
-                        >
-                          <div className="flex items-start gap-2">
-                            <Icon
-                              size={16}
-                              className={cn("mt-0.5 shrink-0", cfg.color)}
-                            />
-                            <div className="flex-1 min-w-0">
-                              {link ? (
-                                link.startsWith("/") ? (
-                                  <button
-                                    onClick={() => router.push(link)}
-                                    className="text-[13px] font-medium text-foreground hover:text-primary text-left line-clamp-2"
-                                  >
-                                    {getBookmarkTitle(b)}
-                                  </button>
-                                ) : (
-                                  <a
-                                    href={link}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-[13px] font-medium text-foreground hover:text-primary line-clamp-2"
-                                  >
-                                    {getBookmarkTitle(b)}
-                                  </a>
-                                )
-                              ) : (
-                                <span className="text-[13px] font-medium text-foreground line-clamp-2">
-                                  {getBookmarkTitle(b)}
-                                </span>
-                              )}
-                              {b.note && (
-                                <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2">
-                                  {b.note}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="mt-3 flex items-center justify-between">
-                            <span className="rounded-lg bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                              {cfg.label}
-                            </span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-muted-foreground">
-                                {timeAgo(b.created_at)}
-                              </span>
-                              <button
-                                onClick={() => handleDeleteBookmark(b.id)}
-                                className="opacity-0 group-hover:opacity-100 text-muted-foreground transition-all hover:text-red-500"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    } else {
-                      const d = entry.item as DocumentItem;
-                      const fileInfo = getFileIcon(d.content_type);
-                      const FileIcon = fileInfo.icon;
-                      return (
-                        <div
-                          key={`doc-${d.id}`}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            setContextMenu({
-                              x: e.clientX,
-                              y: e.clientY,
-                              type: "document",
-                              item: d,
-                            });
-                          }}
-                          className="group relative rounded-xl border border-border bg-card p-4 transition-colors hover:bg-muted/50"
-                        >
-                          <div className="flex items-start gap-2">
-                            <FileIcon
-                              size={16}
-                              className={cn("mt-0.5 shrink-0", fileInfo.color)}
-                            />
-                            <div className="flex-1 min-w-0">
-                              <button
-                                onClick={() => handleDownload(d)}
-                                className="text-[13px] font-medium text-foreground hover:text-primary text-left line-clamp-2"
-                              >
-                                {d.original_filename}
-                              </button>
-                              {d.note && (
-                                <p className="mt-1 text-[11px] text-muted-foreground line-clamp-2">
-                                  {d.note}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-                          <div className="mt-3 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
                             <span className="text-[10px] text-muted-foreground">
-                              {formatFileSize(d.file_size)}
+                              {timeAgo(b.created_at)}
                             </span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-muted-foreground">
-                                {timeAgo(d.created_at)}
-                              </span>
+                            {b.item_type === "paper" && b.item_id && (
                               <button
-                                onClick={() => handleDownload(d)}
-                                className="opacity-0 group-hover:opacity-100 text-muted-foreground transition-all hover:text-primary"
+                                onClick={() => handleSavePaper(b)}
+                                disabled={savingPaperId === b.item_id}
+                                className="opacity-0 group-hover:opacity-100 text-muted-foreground transition-all hover:text-primary disabled:opacity-50"
+                                title="Download PDF to folder"
                               >
-                                <Download size={13} />
+                                {savingPaperId === b.item_id ? (
+                                  <div className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-muted border-t-primary" />
+                                ) : (
+                                  <Download size={13} />
+                                )}
                               </button>
-                              <button
-                                onClick={() => handleDeleteDocument(d.id)}
-                                className="opacity-0 group-hover:opacity-100 text-muted-foreground transition-all hover:text-red-500"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
+                            )}
+                            <button
+                              onClick={() => handleDeleteBookmark(b.id)}
+                              className="opacity-0 group-hover:opacity-100 text-muted-foreground transition-all hover:text-red-500"
+                            >
+                              <Trash2 size={13} />
+                            </button>
                           </div>
                         </div>
-                      );
-                    }
+                      </div>
+                    );
                   })}
                 </div>
               )}
@@ -925,6 +976,15 @@ export default function MyLibraryPage() {
             <>
               <button
                 onClick={() => {
+                  setViewingDocument(contextMenu.item);
+                  setContextMenu(null);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-[13px] text-foreground hover:bg-muted"
+              >
+                <Eye size={14} /> View
+              </button>
+              <button
+                onClick={() => {
                   handleDownload(contextMenu.item);
                   setContextMenu(null);
                 }}
@@ -960,6 +1020,17 @@ export default function MyLibraryPage() {
                   <ExternalLink size={14} /> Open
                 </button>
               )}
+              {contextMenu.item.item_type === "paper" && contextMenu.item.item_id && (
+                <button
+                  onClick={() => {
+                    handleSavePaper(contextMenu.item);
+                    setContextMenu(null);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-[13px] text-foreground hover:bg-muted"
+                >
+                  <Download size={14} /> Download PDF
+                </button>
+              )}
               <button
                 onClick={() => {
                   handleDeleteBookmark(contextMenu.item.id);
@@ -983,6 +1054,13 @@ export default function MyLibraryPage() {
             </button>
           )}
         </div>
+      )}
+
+      {viewingDocument && (
+        <FileViewerModal
+          document={viewingDocument}
+          onClose={() => setViewingDocument(null)}
+        />
       )}
 
       <BookmarkDialog

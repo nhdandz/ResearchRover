@@ -1,5 +1,7 @@
 """Cross-encoder Reranker for improving retrieval quality."""
 
+import math
+
 from src.core.logging import get_logger
 from src.rag.retriever import RetrievedDocument
 
@@ -50,7 +52,8 @@ class CrossEncoderReranker:
 
         result = []
         for doc, score in scored_docs[:top_k]:
-            doc.score = float(score)
+            # Normalize raw logit to 0-1 via sigmoid
+            doc.score = 1.0 / (1.0 + math.exp(-float(score)))
             result.append(doc)
 
         return result

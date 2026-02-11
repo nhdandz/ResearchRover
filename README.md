@@ -226,9 +226,17 @@ rri chat   # Interactive RAG chat
 
 ![Reports](docs/screenshots/reports.png)
 
+### CLI — `rri collect`
+
+![CLI Collect](docs/screenshots/cli-collect.png)
+
+### CLI — `rri chat` (Interactive RAG)
+
+![CLI Chat](docs/screenshots/cli-chat.png)
+
 ---
 
-## 🛠 Tech Stack
+## 🛠 Tech Stack  
 
 ### Backend
 | Technology | Purpose |

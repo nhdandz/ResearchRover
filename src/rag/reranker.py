@@ -13,12 +13,24 @@ class CrossEncoderReranker:
         self.model_name = model_name
         self._model = None
 
+    @staticmethod
+    def _get_device() -> str:
+        import torch
+
+        if torch.backends.mps.is_available():
+            return "mps"
+        if torch.cuda.is_available():
+            return "cuda"
+        return "cpu"
+
     @property
     def model(self):
         if self._model is None:
             from sentence_transformers import CrossEncoder
 
-            self._model = CrossEncoder(self.model_name)
+            device = self._get_device()
+            logger.info("Loading reranker model", model=self.model_name, device=device)
+            self._model = CrossEncoder(self.model_name, device=device)
         return self._model
 
     async def rerank(

@@ -54,11 +54,10 @@ function Navbar() {
       initial={{ y: -100 }}
       animate={{ y: 0 }}
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled
           ? "bg-[#0a0a1a]/80 backdrop-blur-xl border-b border-white/5"
           : "bg-transparent"
-      }`}
+        }`}
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
         {/* Logo */}
@@ -87,7 +86,7 @@ function Navbar() {
 
         {/* CTA */}
         <a
-          href="https://github.com/nhdandz/RRI"
+          href="https://github.com/nhdandz/ResearchRover"
           target="_blank"
           rel="noopener noreferrer"
           className="group flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white backdrop-blur-sm transition-all hover:border-cyan-500/30 hover:bg-white/10"
@@ -112,7 +111,7 @@ function TerminalWindow() {
     { text: "  Running LLM analysis (qwen2.5-72b)...", color: "text-cyan-400", delay: 2.4 },
     { text: '  Summary: "Novel approach to multi-modal RAG..."', color: "text-purple-400", delay: 3.2 },
     { text: "", color: "", delay: 3.8 },
-    { text: "$ rri collect --repo github.com/nhdandz/RRI", color: "text-green-400", delay: 4.0 },
+    { text: "$ rri collect --repo github.com/nhdandz/ResearchRover", color: "text-green-400", delay: 4.0 },
     { text: "  Scanning repository structure...", color: "text-slate-500", delay: 4.8 },
     { text: "  Analyzing dependencies & tech stack...", color: "text-slate-500", delay: 5.6 },
     { text: "  Intelligence report generated.", color: "text-cyan-400", delay: 6.4 },
@@ -233,7 +232,7 @@ function Hero() {
           <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
         </a>
         <a
-          href="https://github.com/nhdandz/RRI"
+          href="https://github.com/nhdandz/ResearchRover"
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-7 py-3.5 text-sm font-semibold text-white backdrop-blur-sm transition-all hover:border-white/20 hover:bg-white/10"
@@ -567,7 +566,7 @@ function CTASection() {
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </a>
             <a
-              href="https://github.com/nhdandz/RRI"
+              href="https://github.com/nhdandz/ResearchRover"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-7 py-3.5 text-sm font-semibold text-white backdrop-blur-sm transition-all hover:border-white/20 hover:bg-white/10"
@@ -606,7 +605,7 @@ function Footer() {
             How it Works
           </a>
           <a
-            href="https://github.com/nhdandz/RRI"
+            href="https://github.com/nhdandz/ResearchRover"
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-slate-500 transition-colors hover:text-white"
@@ -628,7 +627,7 @@ function Footer() {
             </a>
           </span>
           <a
-            href="https://github.com/nhdandz/RRI"
+            href="https://github.com/nhdandz/ResearchRover"
             target="_blank"
             rel="noopener noreferrer"
             className="text-slate-500 transition-colors hover:text-white"

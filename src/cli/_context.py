@@ -1,5 +1,6 @@
 """Factory functions for CLI dependencies."""
 
+import socket
 from urllib.parse import urlparse, urlunparse
 
 from rich.console import Console
@@ -8,15 +9,29 @@ from src.core.config import Settings, get_settings
 
 console = Console(stderr=True)
 
-# Docker-internal hostnames → localhost for local CLI usage
+# Docker-internal hostnames
 _DOCKER_HOSTS = {"postgres", "redis", "qdrant", "ollama", "app"}
 
 
+def _is_inside_docker() -> bool:
+    """Detect if running inside a Docker container."""
+    import os
+
+    if os.path.exists("/.dockerenv"):
+        return True
+    try:
+        with open("/proc/1/cgroup", "r") as f:
+            return "docker" in f.read()
+    except (FileNotFoundError, PermissionError):
+        return False
+
+
 def _localize_url(url: str) -> str:
-    """Replace Docker-internal hostnames with localhost."""
+    """Replace Docker-internal hostnames with localhost when running outside Docker."""
+    if _is_inside_docker():
+        return url
     parsed = urlparse(url)
     if parsed.hostname in _DOCKER_HOSTS:
-        # Preserve userinfo (user:pass@)
         userinfo = ""
         if parsed.username:
             userinfo = parsed.username

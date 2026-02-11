@@ -185,6 +185,10 @@ rri chat   # Interactive RAG chat
 
 ![Papers Browse](docs/screenshots/papers-browse.png)
 
+### Paper Detail
+
+![Paper Detail](docs/screenshots/paper-detail.png)
+
 ### Semantic Search
 
 ![Semantic Search](docs/screenshots/search.png)
@@ -207,23 +211,16 @@ rri chat   # Interactive RAG chat
 
 ### Repositories
 
-<!-- ![Repositories](docs/screenshots/repos.png) -->
-> 📸 *Chụp ảnh trang `/repos` và lưu vào `docs/screenshots/repos.png`*
+![Repositories](docs/screenshots/repos.png) 
 
-### Paper Detail
-
-<!-- ![Paper Detail](docs/screenshots/paper-detail.png) -->
-> 📸 *Chụp ảnh trang `/papers/[id]` và lưu vào `docs/screenshots/paper-detail.png`*
-
+ 
 ### OpenReview
 
-<!-- ![OpenReview](docs/screenshots/openreview.png) -->
-> 📸 *Chụp ảnh trang `/openreview` và lưu vào `docs/screenshots/openreview.png`*
+![OpenReview](docs/screenshots/openreview.png)
 
 ### My Library
 
-<!-- ![My Library](docs/screenshots/my-library.png) -->
-> 📸 *Chụp ảnh trang `/my-library` và lưu vào `docs/screenshots/my-library.png`*
+![My Library](docs/screenshots/my-library.png)
 
 ### Weekly Reports
 

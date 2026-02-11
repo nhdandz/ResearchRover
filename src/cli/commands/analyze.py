@@ -38,17 +38,18 @@ async def _analyze_paper(
     from src.cli._context import get_llm_client
     from src.collectors.arxiv import ArxivCollector
 
-    # Fetch paper
+    # Fetch paper by ID using ArXiv id_list parameter
     console.print(f"Fetching paper [cyan]{arxiv_id}[/cyan]...")
     paper_data = None
     async with ArxivCollector() as collector:
-        async for result in collector.collect(
-            search_query=f"id:{arxiv_id}",
-            max_results=5,
-        ):
-            if result.data.arxiv_id.endswith(arxiv_id) or arxiv_id in result.data.arxiv_id:
-                paper_data = result.data
-                break
+        response = await collector._request(
+            "GET",
+            collector.BASE_URL,
+            params={"id_list": arxiv_id, "max_results": 1},
+        )
+        papers = collector._parse_response(response.text)
+        if papers:
+            paper_data = papers[0]
 
     if not paper_data:
         console.print(f"[red]Paper {arxiv_id} not found[/red]")
@@ -74,17 +75,17 @@ async def _analyze_paper(
     if save_db:
         await _save_analysis_to_db(arxiv_id, analysis)
 
-    if output is not None or True:
-        out_dir = output or Path("./reports")
-        _write_analysis_report(out_dir, arxiv_id, paper_data, analysis)
+    _write_analysis_report(output, arxiv_id, paper_data, analysis)
 
     if hasattr(llm, "close"):
         await llm.close()
 
 
 async def _run_analysis(llm, title: str, abstract: str) -> dict:
-    from src.processors.classifier import TopicClassifier
-    from src.processors.entity_extractor import EntityExtractor
+    import json as _json
+
+    from src.llm.prompts.classification import CLASSIFICATION_PROMPT
+    from src.llm.prompts.extraction import ENTITY_EXTRACTION_PROMPT
     from src.processors.summarizer import Summarizer
 
     analysis = {"summary": "", "classification": None, "entities": None}
@@ -98,27 +99,50 @@ async def _run_analysis(llm, title: str, abstract: str) -> dict:
         analysis["summary"] = summary.full_text
         progress.update(task, advance=1)
 
-        # Classify
-        classifier = TopicClassifier(llm_client=llm)
-        classification = await classifier.classify(title, abstract)
-        analysis["classification"] = {
-            "primary_topic": str(classification.primary_topic.value)
-            if hasattr(classification.primary_topic, "value")
-            else str(classification.primary_topic),
-            "confidence": classification.confidence,
-            "keywords": classification.keywords,
-        }
+        # Classify — use generate_json for better local LLM compatibility
+        try:
+            prompt = CLASSIFICATION_PROMPT.format(title=title, abstract=abstract[:2000])
+            result = await llm.generate_json(prompt, max_tokens=300, temperature=0.1)
+            if result and "primary_topic" in result:
+                from src.core.constants import Topic
+                try:
+                    primary = Topic(result["primary_topic"])
+                except ValueError:
+                    primary = Topic.OTHER
+                analysis["classification"] = {
+                    "primary_topic": primary.value,
+                    "confidence": result.get("confidence", 0.5),
+                    "keywords": result.get("keywords", []),
+                }
+            else:
+                analysis["classification"] = {
+                    "primary_topic": "other",
+                    "confidence": 0.0,
+                    "keywords": [],
+                }
+        except Exception:
+            analysis["classification"] = {
+                "primary_topic": "other",
+                "confidence": 0.0,
+                "keywords": [],
+            }
         progress.update(task, advance=1)
 
-        # Extract entities
-        extractor = EntityExtractor(llm_client=llm)
-        entities = await extractor.extract(title, abstract)
-        analysis["entities"] = {
-            "methods": entities.methods,
-            "datasets": entities.datasets,
-            "metrics": entities.metrics,
-            "tools": entities.tools,
-        }
+        # Extract entities — use generate_json for better local LLM compatibility
+        try:
+            prompt = ENTITY_EXTRACTION_PROMPT.format(title=title, abstract=abstract[:2000])
+            result = await llm.generate_json(prompt, max_tokens=300, temperature=0.1)
+            if result:
+                analysis["entities"] = {
+                    "methods": result.get("methods", []),
+                    "datasets": result.get("datasets", []),
+                    "metrics": result.get("metrics", []),
+                    "tools": result.get("tools", []),
+                }
+            else:
+                analysis["entities"] = {"methods": [], "datasets": [], "metrics": [], "tools": []}
+        except Exception:
+            analysis["entities"] = {"methods": [], "datasets": [], "metrics": [], "tools": []}
         progress.update(task, advance=1)
 
     return analysis
@@ -149,7 +173,7 @@ async def _save_analysis_to_db(arxiv_id: str, analysis: dict) -> None:
             console.print("[yellow]Paper not found in DB, skipping save[/yellow]")
 
 
-def _write_analysis_report(out_dir: Path, arxiv_id: str, paper_data, analysis: dict) -> None:
+def _write_analysis_report(out_dir: Path | None, arxiv_id: str, paper_data, analysis: dict) -> None:
     md = f"# Analysis: {paper_data.title}\n\n"
     md += f"**ArXiv ID:** {arxiv_id}\n"
     md += f"**Authors:** {', '.join(a['name'] for a in paper_data.authors)}\n"
@@ -170,12 +194,13 @@ def _write_analysis_report(out_dir: Path, arxiv_id: str, paper_data, analysis: d
             if items:
                 md += f"- **{key.title()}:** {', '.join(items)}\n"
 
-    write_markdown(out_dir / f"analysis_{arxiv_id.replace('/', '_')}.md", md)
-    write_json(out_dir / f"analysis_{arxiv_id.replace('/', '_')}.json", {
-        "arxiv_id": arxiv_id,
-        "title": paper_data.title,
-        **analysis,
-    })
+    safe_id = arxiv_id.replace("/", "_")
+    if out_dir:
+        write_markdown(out_dir / f"analysis_{safe_id}.md", md)
+        write_json(out_dir / f"analysis_{safe_id}.json", {"arxiv_id": arxiv_id, "title": paper_data.title, **analysis})
+    else:
+        write_markdown(f"analysis_{safe_id}.md", md)
+        write_json(f"analysis_{safe_id}.json", {"arxiv_id": arxiv_id, "title": paper_data.title, **analysis})
 
 
 @app.command()
@@ -245,8 +270,7 @@ async def _analyze_batch(
 
     console.print(f"\n[green]Analyzed {len(all_analyses)}/{len(papers)} papers[/green]")
 
-    out_dir = output or Path("./reports")
-    write_json(out_dir / f"batch_analysis_{query.replace(' ', '_')}.json", all_analyses)
+    safe_query = query.replace(" ", "_")
 
     # Write summary markdown
     md = f"# Batch Analysis: {query}\n\n"
@@ -261,7 +285,12 @@ async def _analyze_batch(
             md += f"**Keywords:** {', '.join(a['classification'].get('keywords', []))}\n\n"
         md += "---\n\n"
 
-    write_markdown(out_dir / f"batch_analysis_{query.replace(' ', '_')}.md", md)
+    if output:
+        write_json(output / f"batch_analysis_{safe_query}.json", all_analyses)
+        write_markdown(output / f"batch_analysis_{safe_query}.md", md)
+    else:
+        write_json(f"batch_analysis_{safe_query}.json", all_analyses)
+        write_markdown(f"batch_analysis_{safe_query}.md", md)
 
     if hasattr(llm, "close"):
         await llm.close()

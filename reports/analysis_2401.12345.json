@@ -1,0 +1,28 @@
+{
+  "arxiv_id": "2401.12345",
+  "title": "Distributionally Robust Receive Combining",
+  "summary": "\nThe paper addresses the problem of signal estimation in wireless transmission (receive combining) from an integrated sensing and communication system, where uncertainties such as transmit signal covariance, channel matrix, and noise covariance exist.\nTo handle these uncertainties, the paper proposes a distributionally robust receive combining framework that is insensitive to them, which reveals that channel estimation is not necessary. The framework includes existing combiners as special cases for optimal linear estimation and derives uncertainty-aware solutions for optimal nonlinear estimation.",
+  "classification": {
+    "primary_topic": "other",
+    "confidence": 0.8,
+    "keywords": [
+      "wireless transmission",
+      "signal estimation",
+      "receive combining",
+      "statistical machine learning"
+    ]
+  },
+  "entities": {
+    "methods": [
+      "Distributionally Robust Receive Combining",
+      "Diagonal Loading",
+      "Eigenvalue Thresholding",
+      "Ridge Regression",
+      "Kernel Ridge Regression",
+      "Kernelized Diagonal Loading"
+    ],
+    "datasets": [],
+    "metrics": [],
+    "tools": []
+  }
+}

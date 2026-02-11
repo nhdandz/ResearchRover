@@ -75,9 +75,11 @@ async def _collect_arxiv(
     if save_db and papers:
         await _save_papers_to_db(papers)
 
-    if output or papers:
-        out_dir = output or Path("./reports")
-        write_json(out_dir / "arxiv_papers.json", papers)
+    if papers:
+        if output:
+            write_json(output / "arxiv_papers.json", papers)
+        else:
+            write_json("arxiv_papers.json", papers)
 
 
 async def _save_papers_to_db(papers: list[dict]) -> None:
@@ -158,9 +160,11 @@ async def _collect_openalex(
     if papers:
         print_papers_table(papers)
 
-    if output or papers:
-        out_dir = output or Path("./reports")
-        write_json(out_dir / "openalex_papers.json", papers)
+    if papers:
+        if output:
+            write_json(output / "openalex_papers.json", papers)
+        else:
+            write_json("openalex_papers.json", papers)
 
 
 @app.command()
@@ -222,9 +226,11 @@ async def _collect_huggingface(
     if items:
         print_hf_models_table(items)
 
-    if output or items:
-        out_dir = output or Path("./reports")
-        write_json(out_dir / f"huggingface_{type_}.json", items)
+    if items:
+        if output:
+            write_json(output / f"huggingface_{type_}.json", items)
+        else:
+            write_json(f"huggingface_{type_}.json", items)
 
 
 @app.command()
@@ -248,15 +254,18 @@ async def _collect_repo(url: str, output: Path | None) -> None:
     console.print(f"  Tree length: {len(repo_content.tree)} chars")
     console.print(f"  Content length: {len(repo_content.content)} chars")
 
-    if output or True:
-        out_dir = output or Path("./reports")
-        content = f"# {repo_content.repo_name}\n\n"
-        content += f"## Summary\n{repo_content.summary}\n\n"
-        content += f"## File Tree\n```\n{repo_content.tree}\n```\n\n"
-        write_markdown(out_dir / f"repo_{repo_content.repo_name}.md", content)
-        write_json(out_dir / f"repo_{repo_content.repo_name}.json", {
-            "name": repo_content.repo_name,
-            "summary": repo_content.summary,
-            "tree": repo_content.tree,
-            "content_length": len(repo_content.content),
-        })
+    content = f"# {repo_content.repo_name}\n\n"
+    content += f"## Summary\n{repo_content.summary}\n\n"
+    content += f"## File Tree\n```\n{repo_content.tree}\n```\n\n"
+    repo_data = {
+        "name": repo_content.repo_name,
+        "summary": repo_content.summary,
+        "tree": repo_content.tree,
+        "content_length": len(repo_content.content),
+    }
+    if output:
+        write_markdown(output / f"repo_{repo_content.repo_name}.md", content)
+        write_json(output / f"repo_{repo_content.repo_name}.json", repo_data)
+    else:
+        write_markdown(f"repo_{repo_content.repo_name}.md", content)
+        write_json(f"repo_{repo_content.repo_name}.json", repo_data)

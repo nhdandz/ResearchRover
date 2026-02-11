@@ -98,11 +98,13 @@ async def _export_report(
 
     console.print(f"\n[green]Report generated: {report_data.get('title', 'Report')}[/green]")
 
-    out_dir = output or Path("./reports")
     filename = f"report_{period}_{period_start}"
 
     if format == "json":
-        write_json(out_dir / f"{filename}.json", report_data)
+        if output:
+            write_json(output / f"{filename}.json", report_data)
+        else:
+            write_json(f"{filename}.json", report_data)
     else:
         md = f"# {report_data.get('title', 'Report')}\n\n"
         if report_data.get("summary"):
@@ -114,7 +116,10 @@ async def _export_report(
             md += "\n"
         if report_data.get("content"):
             md += report_data["content"]
-        write_markdown(out_dir / f"{filename}.md", md)
+        if output:
+            write_markdown(output / f"{filename}.md", md)
+        else:
+            write_markdown(f"{filename}.md", md)
 
     if hasattr(llm, "close"):
         await llm.close()
@@ -172,9 +177,14 @@ async def _export_papers(
             "source": p.source or "",
         })
 
-    out_dir = Path("./reports")
+    from src.cli._output import ensure_reports_dir, REPORTS_DIR
+
     if format == "csv":
-        out_path = output or (out_dir / "papers_export.csv")
+        if output:
+            out_path = output
+        else:
+            ensure_reports_dir()
+            out_path = REPORTS_DIR / "papers_export.csv"
         out_path.parent.mkdir(parents=True, exist_ok=True)
         buf = io.StringIO()
         if paper_dicts:
@@ -184,10 +194,11 @@ async def _export_papers(
         out_path.write_text(buf.getvalue(), encoding="utf-8")
         console.print(f"[green]Written:[/green] {out_path}")
     elif format == "json":
-        out_path = output or (out_dir / "papers_export.json")
-        write_json(out_path, paper_dicts)
+        if output:
+            write_json(output, paper_dicts)
+        else:
+            write_json("papers_export.json", paper_dicts)
     else:
-        out_path = output or (out_dir / "papers_export.md")
         md = "# Papers Export\n\n"
         for p in paper_dicts:
             md += f"## {p['title']}\n"
@@ -198,4 +209,7 @@ async def _export_papers(
             if p['summary']:
                 md += f"\n{p['summary']}\n"
             md += "\n---\n\n"
-        write_markdown(out_path, md)
+        if output:
+            write_markdown(output, md)
+        else:
+            write_markdown("papers_export.md", md)

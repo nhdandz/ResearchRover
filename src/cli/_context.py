@@ -1,10 +1,32 @@
 """Factory functions for CLI dependencies."""
 
+from urllib.parse import urlparse, urlunparse
+
 from rich.console import Console
 
 from src.core.config import Settings, get_settings
 
 console = Console(stderr=True)
+
+# Docker-internal hostnames → localhost for local CLI usage
+_DOCKER_HOSTS = {"postgres", "redis", "qdrant", "ollama", "app"}
+
+
+def _localize_url(url: str) -> str:
+    """Replace Docker-internal hostnames with localhost."""
+    parsed = urlparse(url)
+    if parsed.hostname in _DOCKER_HOSTS:
+        # Preserve userinfo (user:pass@)
+        userinfo = ""
+        if parsed.username:
+            userinfo = parsed.username
+            if parsed.password:
+                userinfo += f":{parsed.password}"
+            userinfo += "@"
+        host = f"localhost:{parsed.port}" if parsed.port else "localhost"
+        replaced = parsed._replace(netloc=f"{userinfo}{host}")
+        return urlunparse(replaced)
+    return url
 
 
 def get_cli_settings() -> Settings:
@@ -14,9 +36,22 @@ def get_cli_settings() -> Settings:
 def get_session_factory():
     """Create async session factory. Returns None if DB is unavailable."""
     try:
-        from src.storage.database import create_async_session_factory
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-        return create_async_session_factory()
+        settings = get_cli_settings()
+        db_url = _localize_url(settings.DATABASE_URL)
+        _engine = create_async_engine(
+            db_url,
+            echo=settings.DEBUG,
+            pool_size=5,
+            max_overflow=5,
+            pool_pre_ping=True,
+        )
+        return async_sessionmaker(
+            _engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
     except Exception as e:
         console.print(f"[yellow]Warning: Database unavailable ({e})[/yellow]")
         return None
@@ -39,8 +74,9 @@ def get_llm_client(cloud: bool = False):
         else:
             from src.llm.ollama_client import OllamaClient
 
+            base_url = _localize_url(settings.LOCAL_LLM_URL)
             return OllamaClient(
-                base_url=settings.LOCAL_LLM_URL,
+                base_url=base_url,
                 model=settings.LOCAL_LLM_MODEL,
             )
     except Exception as e:
@@ -51,9 +87,18 @@ def get_llm_client(cloud: bool = False):
 def get_vector_store():
     """Get vector store. Returns None if unavailable."""
     try:
+        from qdrant_client import QdrantClient as _QdrantClient
+
+        from src.core.config import get_settings as _gs
+
+        settings = _gs()
+        qdrant_url = _localize_url(settings.QDRANT_URL)
+
         from src.storage.vector.qdrant_client import VectorStore
 
-        return VectorStore()
+        store = VectorStore.__new__(VectorStore)
+        store.client = _QdrantClient(url=qdrant_url, api_key=settings.QDRANT_API_KEY)
+        return store
     except Exception as e:
         console.print(f"[yellow]Warning: Vector store unavailable ({e})[/yellow]")
         return None

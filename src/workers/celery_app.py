@@ -99,10 +99,10 @@ _beat_schedule = {
     },
 
     # ── OpenReview ──
-    # Collect all papers (paginated) - every 3 days at 5 AM
+    # Collect papers weekly on Sundays at 5 AM (avoid rate limits)
     "collect-openreview": {
         "task": "src.workers.tasks.collection.collect_openreview",
-        "schedule": crontab(minute=0, hour=5, day_of_month="1,4,7,10,13,16,19,22,25,28"),
+        "schedule": crontab(minute=0, hour=5, day_of_week=0),
         "options": {"queue": "collection"},
     },
 

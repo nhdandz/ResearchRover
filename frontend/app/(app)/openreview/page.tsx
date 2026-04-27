@@ -115,7 +115,7 @@ export default function OpenReviewPage() {
   const [selectedArea, setSelectedArea] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [sortBy, setSortBy] = useState("average_rating");
+  const [sortBy, setSortBy] = useState("published_at");
   const [minRating, setMinRating] = useState<string>("");
   const debounceRef = useRef<NodeJS.Timeout>();
 

@@ -48,12 +48,20 @@ async def _generate_report():
         paper_repo = PaperRepository(session)
         metrics_repo = MetricsRepository(session)
 
-        # Get papers from this week
-        papers, paper_count = await paper_repo.list_papers(
-            date_from=period_start,
-            date_to=period_end,
-            limit=100,
+        # Get papers collected this week (by created_at, not published_date)
+        from datetime import datetime as _dt
+        papers_result = await session.execute(
+            select(Paper)
+            .where(Paper.created_at >= _dt.combine(period_start, _dt.min.time()))
+            .order_by(Paper.created_at.desc())
+            .limit(100)
         )
+        papers = list(papers_result.scalars().all())
+        paper_count_result = await session.execute(
+            select(func.count(Paper.id))
+            .where(Paper.created_at >= _dt.combine(period_start, _dt.min.time()))
+        )
+        paper_count = paper_count_result.scalar() or 0
 
         # Build summaries for LLM
         papers_summary = "\n".join(
@@ -162,10 +170,10 @@ async def _generate_report():
             highlights = []
         highlights = [str(h) for h in highlights[:10]]
 
-        # Count repos
+        # Count repos collected this week
         repo_count_result = await session.execute(
             select(func.count(Repository.id)).where(
-                Repository.created_at >= period_start
+                Repository.created_at >= _dt.combine(period_start, _dt.min.time())
             )
         )
         new_repos_count = repo_count_result.scalar() or 0

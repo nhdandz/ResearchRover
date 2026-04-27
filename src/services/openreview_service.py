@@ -29,7 +29,10 @@ DEFAULT_VENUES = [
 ]
 
 BATCH_SIZE = 200  # Max per API call
-REVIEW_CONCURRENCY = 3  # Parallel review fetches (keep low to avoid 429)
+REVIEW_CONCURRENCY = 1  # Sequential review fetches to avoid 429
+REQUEST_DELAY = 2.0  # Seconds between API calls
+REVIEW_DELAY = 3.0  # Seconds between review fetches
+MAX_RETRIES = 5  # Max retries on 429
 
 
 def _get_value(field):

@@ -261,12 +261,13 @@ async def get_research_landscape(
     return ResearchLandscapeResponse(**data)
 
 
-@router.get("/{paper_id}/similar", response_model=list[PaperResponse])
-async def get_similar_papers(
+@router.get("/{paper_id}/similar-by-keywords", response_model=list[PaperResponse])
+async def get_similar_papers_by_keywords(
     paper_id: UUID,
     db: DbSession,
     limit: int = Query(10, ge=1, le=30),
 ):
+    """Keyword/category overlap version. Phiên bản semantic xem `/{paper_id}/similar`."""
     repo = PaperRepository(db)
     papers = await repo.get_similar_papers(paper_id=paper_id, limit=limit)
     return [PaperResponse.model_validate(p) for p in papers]
@@ -420,4 +421,162 @@ async def get_paper(paper_id: UUID, db: DbSession):
     return PaperDetailResponse(
         paper=PaperResponse.model_validate(paper),
         linked_repos=[],
+    )
+
+
+# ── Similar papers (Phase 3) ──────────────────────────────────────────────────
+
+@router.get("/{paper_id}/similar")
+async def get_similar_papers(
+    paper_id: UUID,
+    db: DbSession,
+    limit: int = Query(6, ge=1, le=20),
+):
+    """Return papers semantically similar to the given paper via Qdrant."""
+    repo = PaperRepository(db)
+    paper = await repo.get_by_id(paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    try:
+        from src.processors.embedding import EmbeddingGenerator
+        from src.storage.vector.qdrant_client import VectorStore
+
+        gen = EmbeddingGenerator()
+        query_vec = gen.embed_paper(
+            paper.title or "",
+            paper.abstract or "",
+        )
+
+        vs = VectorStore()
+        hits = vs.search(
+            collection="papers",
+            query_vector=query_vec,
+            limit=limit + 1,  # +1 to exclude self
+        )
+
+        # Exclude the queried paper itself
+        hit_ids = [h["id"] for h in hits if str(h["id"]) != str(paper_id)][:limit]
+
+        if not hit_ids:
+            return {"items": [], "total": 0}
+
+        from sqlalchemy import select as _select
+        from src.storage.models.paper import Paper as PaperModel
+
+        stmt = _select(PaperModel).where(PaperModel.id.in_(hit_ids))
+        result = await db.execute(stmt)
+        similar = result.scalars().all()
+
+        # Preserve score order
+        score_map = {str(h["id"]): h["score"] for h in hits}
+        similar_sorted = sorted(similar, key=lambda p: score_map.get(str(p.id), 0), reverse=True)
+
+        items = [
+            {
+                "id": str(p.id),
+                "title": p.title,
+                "arxiv_id": p.arxiv_id,
+                "categories": p.categories or [],
+                "published_date": p.published_date.isoformat() if p.published_date else None,
+                "citation_count": p.citation_count or 0,
+                "score": score_map.get(str(p.id), 0),
+            }
+            for p in similar_sorted
+        ]
+        return {"items": items, "total": len(items)}
+
+    except Exception:
+        # Fallback: return recent papers from same category
+        cats = paper.categories or []
+        from sqlalchemy import select as _select
+        from src.storage.models.paper import Paper as PaperModel
+
+        stmt = _select(PaperModel).where(
+            PaperModel.id != paper_id,
+        )
+        if cats:
+            stmt = stmt.where(PaperModel.categories.overlap(cats))
+        stmt = stmt.order_by(PaperModel.published_date.desc()).limit(limit)
+        result = await db.execute(stmt)
+        similar = result.scalars().all()
+        items = [
+            {
+                "id": str(p.id),
+                "title": p.title,
+                "arxiv_id": p.arxiv_id,
+                "categories": p.categories or [],
+                "published_date": p.published_date.isoformat() if p.published_date else None,
+                "citation_count": p.citation_count or 0,
+                "score": None,
+            }
+            for p in similar
+        ]
+        return {"items": items, "total": len(items)}
+
+
+# ── BibTeX export (Phase 3) ───────────────────────────────────────────────────
+
+@router.get("/{paper_id}/export/bibtex")
+async def export_bibtex(paper_id: UUID, db: DbSession):
+    """Return a BibTeX entry for the given paper as a .bib file download."""
+    from fastapi.responses import Response
+
+    repo = PaperRepository(db)
+    paper = await repo.get_by_id(paper_id)
+    if not paper:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+    def _safe(s: str | None, default: str = "") -> str:
+        return (s or default).replace("{", "").replace("}", "").replace('"', "'")
+
+    # Build cite key: FirstAuthorLastName + Year
+    first_author = ""
+    if paper.authors:
+        authors_data = paper.authors if isinstance(paper.authors, list) else []
+        if authors_data:
+            first = authors_data[0]
+            name = first.get("name", "") if isinstance(first, dict) else str(first)
+            last = name.split()[-1] if name else "Unknown"
+            first_author = last
+    year = str(paper.published_date.year) if paper.published_date else "0000"
+    title_word = "".join(c for c in (paper.title or "").split()[0] if c.isalpha()) if paper.title else "paper"
+    cite_key = f"{first_author}{year}{title_word}"
+
+    # Authors field
+    authors_str = ""
+    if paper.authors:
+        authors_list = paper.authors if isinstance(paper.authors, list) else []
+        names = [
+            a.get("name", "") if isinstance(a, dict) else str(a)
+            for a in authors_list
+        ]
+        authors_str = " and ".join(n for n in names if n)
+
+    lines = ["@article{" + cite_key + ","]
+    lines.append(f'  title     = {{{_safe(paper.title)}}},')
+    if authors_str:
+        lines.append(f'  author    = {{{_safe(authors_str)}}},')
+    if paper.published_date:
+        lines.append(f'  year      = {{{year}}},')
+        lines.append(f'  month     = {{{paper.published_date.month}}},')
+    if paper.arxiv_id:
+        lines.append(f'  eprint    = {{{paper.arxiv_id}}},')
+        lines.append(f'  archivePrefix = {{arXiv}},')
+    if paper.doi:
+        lines.append(f'  doi       = {{{_safe(paper.doi)}}},')
+    if paper.source_url:
+        lines.append(f'  url       = {{{_safe(paper.source_url)}}},')
+    if paper.abstract:
+        abstract_short = _safe(paper.abstract[:400])
+        lines.append(f'  abstract  = {{{abstract_short}...}},')
+    lines.append("}")
+
+    bib_content = "\n".join(lines)
+    filename = f"{cite_key}.bib"
+
+    return Response(
+        content=bib_content,
+        media_type="text/plain",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

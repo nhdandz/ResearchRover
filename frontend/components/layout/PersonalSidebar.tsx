@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   ChevronRight,
   ChevronDown,
@@ -18,7 +18,13 @@ import {
   GripVertical,
   FolderInput,
   CornerLeftUp,
+  Sparkles,
+  BellRing,
+  Search,
+  FileText,
+  Rss,
 } from "lucide-react";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/AuthProvider";
 import { fetchFolders, createFolder, updateFolder, deleteFolder } from "@/lib/api";
@@ -51,6 +57,7 @@ interface DropTarget {
 export function PersonalSidebar() {
   const { user } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [folders, setFolders] = useState<FolderNode[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -525,6 +532,34 @@ export function PersonalSidebar() {
           collapsed ? "w-0 overflow-hidden border-r-0" : "w-64"
         )}
       >
+        {/* ── Personalization links ── */}
+        {!collapsed && (
+          <div className="border-b border-border px-2 py-3">
+            <p className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+              Personalization
+            </p>
+            {[
+              { href: "/me/feed", label: "My Feed", icon: Rss },
+              { href: "/me/digest", label: "Weekly Digest", icon: Sparkles },
+              { href: "/settings/searches", label: "Saved Searches", icon: Search },
+              { href: "/settings/alerts", label: "Alerts", icon: BellRing },
+            ].map(({ href, label, icon: Icon }) => (
+              <Link
+                key={href}
+                href={href}
+                onClick={() => {}}
+                className={cn(
+                  "flex items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] transition-colors hover:bg-muted",
+                  pathname === href ? "bg-muted/80 text-foreground font-medium" : "text-muted-foreground"
+                )}
+              >
+                <Icon size={14} className={pathname === href ? "text-primary" : ""} />
+                {label}
+              </Link>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-center justify-between p-3 pb-2">
           <div className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
             <Library size={15} className="text-primary" />

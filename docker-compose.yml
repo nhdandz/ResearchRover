@@ -53,6 +53,8 @@ services:
     depends_on:
       - redis
       - worker
+    volumes:
+      - ./src:/app/src
     command: celery -A src.workers.celery_app beat --loglevel=info
 
   postgres:

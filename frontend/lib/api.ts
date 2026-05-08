@@ -103,11 +103,6 @@ export async function fetchResearchLandscape(params?: Record<string, any>) {
   return data;
 }
 
-export async function fetchSimilarPapers(paperId: string, limit: number = 10) {
-  const { data } = await api.get(`/papers/${paperId}/similar`, { params: { limit } });
-  return data;
-}
-
 export async function fetchRepos(params?: Record<string, any>) {
   const { data } = await api.get("/repos", { params });
   return data;
@@ -327,7 +322,7 @@ export async function createBookmark(body: {
 
 export async function updateBookmark(
   id: string,
-  body: { folder_id?: string; note?: string }
+  body: { folder_id?: string; note?: string; reading_status?: string }
 ) {
   const { data } = await api.patch(`/bookmarks/${id}`, body);
   return data;
@@ -521,3 +516,331 @@ export async function triggerCollectOpenReview() {
 }
 
 export default api;
+
+
+// ── User Profile API ──
+
+export async function updateUserProfile(body: Record<string, any>) {
+  const { data } = await api.patch("/auth/me/profile", body);
+  return data;
+}
+
+export async function getOnboardingMeta() {
+  const { data } = await api.get("/auth/onboarding-meta");
+  return data;
+}
+
+export async function completeOnboarding(body: Record<string, any>) {
+  const { data } = await api.post("/auth/me/onboarding", body);
+  return data;
+}
+
+// ── User Alerts API ──
+
+export async function fetchUserAlerts(params?: Record<string, any>) {
+  const { data } = await api.get("/me/alerts", { params });
+  return data;
+}
+
+export async function createUserAlert(body: {
+  alert_type: string;
+  label: string;
+  config: Record<string, any>;
+  channel?: string;
+  frequency?: string;
+}) {
+  const { data } = await api.post("/me/alerts", body);
+  return data;
+}
+
+export async function updateUserAlert(id: string, body: Record<string, any>) {
+  const { data } = await api.patch(`/me/alerts/${id}`, body);
+  return data;
+}
+
+export async function deleteUserAlert(id: string) {
+  await api.delete(`/me/alerts/${id}`);
+}
+
+export async function toggleAllUserAlerts(is_active: boolean) {
+  const { data } = await api.patch("/me/alerts", null, { params: { is_active } });
+  return data;
+}
+
+
+// ── Personal Feed API ──
+
+export async function fetchMyFeed(params?: Record<string, any>) {
+  const { data } = await api.get("/me/feed", { params });
+  return data;
+}
+
+export async function markFeedItems(item_ids: string[], action: "read" | "dismiss" | "unread") {
+  await api.post("/me/feed/mark", { item_ids, action });
+}
+
+export async function markAllFeedRead() {
+  await api.post("/me/feed/mark-all-read");
+}
+
+// ── Personal Digest API ──
+
+export async function fetchLatestDigest() {
+  const { data } = await api.get("/me/digest/latest");
+  return data;
+}
+
+export async function fetchDigestHistory(limit = 10) {
+  const { data } = await api.get("/me/digest/history", { params: { limit } });
+  return data;
+}
+
+export async function triggerDigestGeneration() {
+  const { data } = await api.post("/me/digest/generate");
+  return data;
+}
+
+// ── Saved Searches API ──
+
+export async function fetchSavedSearches() {
+  const { data } = await api.get("/me/saved-searches");
+  return data;
+}
+
+export async function createSavedSearch(body: {
+  name: string;
+  query: string;
+  search_type?: string;
+  filters?: Record<string, any> | null;
+  notify_new_results?: boolean;
+  frequency?: string;
+}) {
+  const { data } = await api.post("/me/saved-searches", body);
+  return data;
+}
+
+export async function updateSavedSearch(id: string, body: Record<string, any>) {
+  const { data } = await api.patch(`/me/saved-searches/${id}`, body);
+  return data;
+}
+
+export async function deleteSavedSearch(id: string) {
+  await api.delete(`/me/saved-searches/${id}`);
+}
+
+export async function runSavedSearch(id: string) {
+  const { data } = await api.post(`/me/saved-searches/${id}/run`);
+  return data;
+}
+
+export async function markSavedSearchViewed(id: string) {
+  await api.post(`/me/saved-searches/${id}/viewed`);
+}
+
+// ── Paper Notes API (Phase 3) ──
+
+export async function fetchPaperNotes(itemId: string, isPaper = true) {
+  const params = isPaper ? { paper_id: itemId } : { item_id: itemId };
+  const { data } = await api.get("/me/notes", { params });
+  return data;
+}
+
+export async function createPaperNote(body: { paper_id?: string; item_id?: string; content: string; is_pinned?: boolean; tags?: string[] }) {
+  const { data } = await api.post("/me/notes", body);
+  return data;
+}
+
+export async function updatePaperNote(noteId: string, body: { content?: string; is_pinned?: boolean; tags?: string[] }) {
+  const { data } = await api.patch(`/me/notes/${noteId}`, body);
+  return data;
+}
+
+export async function deletePaperNote(noteId: string) {
+  await api.delete(`/me/notes/${noteId}`);
+}
+
+// ── Similar Papers + BibTeX (Phase 3) ──
+
+export async function fetchSimilarPapers(paperId: string, limit = 6) {
+  const { data } = await api.get(`/papers/${paperId}/similar`, { params: { limit } });
+  return data;
+}
+
+export function getBibTexUrl(paperId: string): string {
+  const base = (api.defaults.baseURL || "").replace(/\/$/, "");
+  return `${base}/papers/${paperId}/export/bibtex`;
+}
+
+export async function fetchSimilarRepos(repoId: string, limit = 6) {
+  const { data } = await api.get(`/repos/${repoId}/similar`, { params: { limit } });
+  return data;
+}
+
+// ── Notifications (P0 fix) ──
+
+export interface Notification {
+  id: string;
+  notification_type: string;
+  severity: "info" | "success" | "warning" | "critical";
+  title: string;
+  body: string | null;
+  link: string | null;
+  data: Record<string, any> | null;
+  is_read: boolean;
+  read_at: string | null;
+  delivered_in_app: boolean;
+  delivered_email: boolean;
+  delivered_webhook: boolean;
+  created_at: string;
+}
+
+export async function fetchNotifications(params?: {
+  skip?: number;
+  limit?: number;
+  unread_only?: boolean;
+  notification_type?: string;
+}) {
+  const { data } = await api.get("/me/notifications", { params });
+  return data as { unread_count: number; total_count: number; items: Notification[] };
+}
+
+export async function fetchUnreadCount() {
+  const { data } = await api.get("/me/notifications/unread-count");
+  return data as { unread_count: number };
+}
+
+export async function markNotifications(
+  notification_ids: string[],
+  action: "read" | "unread" | "delete",
+) {
+  await api.post("/me/notifications/mark", { notification_ids, action });
+}
+
+export async function markAllNotificationsRead() {
+  await api.post("/me/notifications/mark-all-read");
+}
+
+export async function clearReadNotifications() {
+  await api.delete("/me/notifications/clear-read");
+}
+
+export async function getNotificationPreferences() {
+  const { data } = await api.get("/me/notifications/preferences");
+  return data;
+}
+
+export async function updateNotificationPreferences(prefs: Record<string, any>) {
+  const { data } = await api.put("/me/notifications/preferences", prefs);
+  return data;
+}
+
+export async function sendTestNotification() {
+  const { data } = await api.post("/me/notifications/test");
+  return data;
+}
+
+// ── Intelligence (buzz, concepts, KG, comparison) ──
+
+export async function fetchBuzzPapers(params?: {
+  period?: "day" | "week" | "month";
+  sort?: "buzz_score" | "buzz_velocity";
+  limit?: number;
+}) {
+  const { data } = await api.get("/intelligence/buzz", { params });
+  return data;
+}
+
+export async function fetchPaperSignals(paperId: string) {
+  const { data } = await api.get(`/intelligence/papers/${paperId}/signals`);
+  return data;
+}
+
+export async function fetchTrendingConcepts(params?: {
+  status?: "hot" | "rising" | "stable" | "declining" | "stale";
+  limit?: number;
+}) {
+  const { data } = await api.get("/intelligence/concepts/trending", { params });
+  return data;
+}
+
+export async function fetchConceptTimeline(concept: string) {
+  const { data } = await api.get(
+    `/intelligence/concepts/${encodeURIComponent(concept)}/timeline`,
+  );
+  return data;
+}
+
+export async function compareAuthorsByIds(a: string, b: string) {
+  const { data } = await api.get("/intelligence/compare/authors", { params: { a, b } });
+  return data;
+}
+
+export async function compareConcepts(a: string, b: string) {
+  const { data } = await api.get("/intelligence/compare/concepts", { params: { a, b } });
+  return data;
+}
+
+export async function fetchKnowledgeGraph(params?: {
+  seed_paper_id?: string;
+  seed_concept?: string;
+  max_nodes?: number;
+}) {
+  const { data } = await api.get("/intelligence/knowledge-graph", { params });
+  return data;
+}
+
+export async function fetchAffiliationDistribution(limit = 50) {
+  const { data } = await api.get("/intelligence/geographic/affiliations", { params: { limit } });
+  return data;
+}
+
+// ── Authors ──
+
+export async function fetchAuthorsList(params?: {
+  search?: string;
+  sort?: "paper_count" | "citation_count" | "h_index";
+  skip?: number;
+  limit?: number;
+}) {
+  const { data } = await api.get("/authors", { params });
+  return data;
+}
+
+export async function fetchAuthor(authorId: string) {
+  const { data } = await api.get(`/authors/${authorId}`);
+  return data;
+}
+
+export async function fetchCoauthors(authorId: string, limit = 20) {
+  const { data } = await api.get(`/authors/${authorId}/coauthors`, { params: { limit } });
+  return data;
+}
+
+export async function fetchAuthorNetwork(authorId: string, depth = 1) {
+  const { data } = await api.get(`/authors/${authorId}/network`, { params: { depth } });
+  return data;
+}
+
+// ── Research Assistant (AI features) ──
+
+export async function fetchReadingQueue(limit = 20) {
+  const { data } = await api.get("/me/assistant/reading-queue", { params: { limit } });
+  return data;
+}
+
+export async function fetchLiteratureGaps() {
+  const { data } = await api.get("/me/assistant/literature-gaps");
+  return data;
+}
+
+export async function generateLiteratureReview(folderId: string) {
+  const { data } = await api.post(`/me/assistant/literature-review`, null, {
+    params: { folder_id: folderId },
+  });
+  return data;
+}
+
+export async function checkPaperCOI(paperId: string) {
+  const { data } = await api.get(`/me/assistant/coi-check/paper/${paperId}`);
+  return data;
+}

@@ -28,6 +28,15 @@ class Bookmark(Base):
     external_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Trạng thái đọc:
+    #   saved     — Đã lưu, chưa đọc (mặc định)
+    #   reading   — Đang đọc
+    #   completed — Đã đọc xong
+    #   archived  — Bỏ qua, không đọc nữa
+    reading_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="saved", server_default="saved"
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         default=func.now(), server_default=func.now()
     )

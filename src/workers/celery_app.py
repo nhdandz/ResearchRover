@@ -106,6 +106,84 @@ _beat_schedule = {
         "options": {"queue": "collection"},
     },
 
+    # ── Personalization ──
+    # Build personal feed hàng ngày lúc 7 SA (sau khi collection + processing đã chạy xong)
+    "generate-user-feeds": {
+        "task": "src.workers.tasks.personalization.generate_all_user_feeds",
+        "schedule": crontab(minute=0, hour=7),
+        "options": {"queue": "reporting"},
+    },
+    # Personal weekly digest mỗi Chủ nhật lúc 9 SA
+    "generate-user-digests": {
+        "task": "src.workers.tasks.personalization.generate_all_user_digests",
+        "schedule": crontab(minute=0, hour=9, day_of_week=0),
+        "options": {"queue": "reporting"},
+    },
+    # Chạy lại saved searches hàng ngày lúc 8 SA
+    "run-saved-searches": {
+        "task": "src.workers.tasks.personalization.run_all_saved_searches",
+        "schedule": crontab(minute=0, hour=8),
+        "options": {"queue": "reporting"},
+    },
+
+    # ── Notification Engine ──
+    # Đánh giá user_alerts mỗi giờ
+    "evaluate-user-alerts": {
+        "task": "src.workers.tasks.notifications.evaluate_all_user_alerts",
+        "schedule": crontab(minute=15, hour="*"),
+        "options": {"queue": "reporting"},
+    },
+    # Cleanup notifications cũ hàng tuần
+    "cleanup-notifications": {
+        "task": "src.workers.tasks.notifications.cleanup_old_notifications",
+        "schedule": crontab(minute=0, hour=4, day_of_week=0),
+        "options": {"queue": "reporting"},
+    },
+
+    # ── New collectors (P2) ──
+    "collect-biorxiv": {
+        "task": "src.workers.tasks.collection.collect_biorxiv",
+        "schedule": crontab(minute=0, hour=3, day_of_week="1,4"),  # Mon, Thu
+        "args": ("biorxiv", 200, 7),
+        "options": {"queue": "collection"},
+    },
+    "collect-medrxiv": {
+        "task": "src.workers.tasks.collection.collect_biorxiv",
+        "schedule": crontab(minute=30, hour=3, day_of_week="1,4"),
+        "args": ("medrxiv", 150, 7),
+        "options": {"queue": "collection"},
+    },
+    "collect-acl-anthology": {
+        "task": "src.workers.tasks.collection.collect_acl_anthology",
+        "schedule": crontab(minute=0, hour=4, day_of_week=2),  # Tuesday
+        "options": {"queue": "collection"},
+    },
+    "collect-retraction-watch": {
+        "task": "src.workers.tasks.collection.collect_retraction_watch",
+        "schedule": crontab(minute=0, hour=5, day_of_week=3),  # Wednesday
+        "options": {"queue": "collection"},
+    },
+
+    # ── OSINT Intelligence ──
+    # Tổng hợp signal đa nguồn cho papers
+    "compute-paper-signals": {
+        "task": "src.workers.tasks.intelligence.compute_paper_signals",
+        "schedule": crontab(minute=30, hour=3),
+        "options": {"queue": "processing"},
+    },
+    # Cập nhật concept trend theo tuần
+    "update-concept-trends": {
+        "task": "src.workers.tasks.intelligence.update_concept_trends",
+        "schedule": crontab(minute=0, hour=6, day_of_week=1),
+        "options": {"queue": "processing"},
+    },
+    # Cập nhật author profiles từ papers
+    "build-author-profiles": {
+        "task": "src.workers.tasks.intelligence.build_author_profiles",
+        "schedule": crontab(minute=0, hour=5),
+        "options": {"queue": "processing"},
+    },
+
     # ── Reports ──
     # Generate weekly report on Mondays
     "weekly-report": {
@@ -151,4 +229,7 @@ celery_app.autodiscover_tasks([
     "src.workers.tasks.collection",
     "src.workers.tasks.processing",
     "src.workers.tasks.reporting",
+    "src.workers.tasks.personalization",
+    "src.workers.tasks.notifications",
+    "src.workers.tasks.intelligence",
 ])

@@ -13,6 +13,7 @@ import {
   fetchGithubDiscussions, fetchDiscussionFilters,
 } from "@/lib/api";
 import { formatNumber } from "@/lib/utils";
+import { useAuth } from "@/components/AuthProvider";
 
 const PAGE_SIZE = 20;
 
@@ -257,6 +258,43 @@ export default function TrendingPage() {
   const repoDebounceRef = useRef<NodeJS.Timeout>();
   const paperDebounceRef = useRef<NodeJS.Timeout>();
 
+  // ── My Interests mode (Phase 3) ──────────────────────────────────────
+  const { user } = useAuth();
+  const [myInterestsMode, setMyInterestsMode] = useState(false);
+
+  const INTEREST_CATEGORY_MAP: Record<string, string[]> = {
+    "Natural Language Processing": ["cs.CL", "cs.AI"],
+    "Computer Vision": ["cs.CV"],
+    "Machine Learning": ["cs.LG", "stat.ML"],
+    "Deep Learning": ["cs.LG", "cs.NE"],
+    "Reinforcement Learning": ["cs.LG", "cs.AI"],
+    "Robotics": ["cs.RO"],
+    "Data Science": ["stat.ML", "cs.LG"],
+    "Bioinformatics": ["q-bio.GN", "cs.LG"],
+    "Quantum Computing": ["quant-ph", "cs.ET"],
+    "Cryptography & Security": ["cs.CR"],
+    "Software Engineering": ["cs.SE"],
+    "Human-Computer Interaction": ["cs.HC"],
+    "Information Retrieval": ["cs.IR"],
+    "Knowledge Graphs": ["cs.AI", "cs.DB"],
+    "Multimodal AI": ["cs.CV", "cs.CL", "cs.AI"],
+  };
+
+  const handleToggleMyInterests = () => {
+    if (!myInterestsMode && user?.research_interests?.length) {
+      const cats = Array.from(new Set(
+        user.research_interests.flatMap((i: string) => INTEREST_CATEGORY_MAP[i] ?? [])
+      ));
+      setActiveCategories(cats);
+      setPapersPage(0);
+      setMyInterestsMode(true);
+    } else {
+      setActiveCategories([]);
+      setPapersPage(0);
+      setMyInterestsMode(false);
+    }
+  };
+
   const categoryParam = activeCategories.length === 1 ? activeCategories[0] : undefined;
   const topicParam = activeTopics.length > 0 ? activeTopics.join(",") : undefined;
 
@@ -477,6 +515,30 @@ export default function TrendingPage() {
         <h1 className="text-3xl font-semibold tracking-tighter text-foreground">Trending</h1>
         <p className="mt-2 text-[15px] text-muted-foreground">Hot papers, repositories, and technology radar</p>
       </div>
+
+      {/* My Interests toggle */}
+      {!!user?.research_interests?.length && (
+        <div className="flex items-center gap-3 rounded-2xl border border-border bg-card px-5 py-3 shadow-soft dark:shadow-soft-dark">
+          <div className="flex-1">
+            <p className="text-[13px] font-medium text-foreground">Filter by My Interests</p>
+            <p className="text-[11px] text-muted-foreground">
+              {myInterestsMode
+                ? `Showing papers in: ${(user.research_interests as string[]).slice(0, 3).join(", ")}${(user.research_interests as string[]).length > 3 ? "…" : ""}`
+                : "Show only papers matching your research interests"}
+            </p>
+          </div>
+          <button
+            onClick={handleToggleMyInterests}
+            className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-[12px] font-medium transition-all duration-150 ${
+              myInterestsMode
+                ? "bg-primary text-primary-foreground hover:opacity-90"
+                : "border border-border text-muted-foreground hover:border-primary/30 hover:bg-primary/5 hover:text-primary"
+            }`}
+          >
+            {myInterestsMode ? "✓ My Interests" : "My Interests"}
+          </button>
+        </div>
+      )}
 
       <div className="flex items-center gap-1 rounded-xl border border-border bg-muted/50 p-1">
         {(["papers", "repos", "huggingface", "discussions", "radar"] as const).map((t) => (

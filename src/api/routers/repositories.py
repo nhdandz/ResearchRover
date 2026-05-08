@@ -98,3 +98,91 @@ async def get_repository(repo_id: UUID, db: DbSession):
         linked_papers=[],
         readme_summary=repository.readme_summary,
     )
+
+
+# ── Similar repos (Phase 3) ───────────────────────────────────────────────────
+
+@router.get("/{repo_id}/similar")
+async def get_similar_repos(
+    repo_id: UUID,
+    db: DbSession,
+    limit: int = Query(6, ge=1, le=20),
+):
+    """Return repositories semantically similar to the given repo via Qdrant."""
+    from src.storage.repositories.github_repo import GitHubRepository as RepoStore
+    repo_store = RepoStore(db)
+    repo = await repo_store.get_by_id(repo_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    try:
+        from src.processors.embedding import EmbeddingGenerator
+        from src.storage.vector.qdrant_client import VectorStore
+
+        gen = EmbeddingGenerator()
+        query_vec = gen.embed_repo(
+            repo.full_name or "",
+            repo.description or "",
+            repo.readme_summary or None,
+        )
+
+        vs = VectorStore()
+        hits = vs.search(
+            collection="repositories",
+            query_vector=query_vec,
+            limit=limit + 1,
+        )
+
+        hit_ids = [h["id"] for h in hits if str(h["id"]) != str(repo_id)][:limit]
+
+        if not hit_ids:
+            return {"items": [], "total": 0}
+
+        from sqlalchemy import select as _select
+        from src.storage.models.repository import Repository as RepoModel
+
+        stmt = _select(RepoModel).where(RepoModel.id.in_(hit_ids))
+        result = await db.execute(stmt)
+        similar = result.scalars().all()
+
+        score_map = {str(h["id"]): h["score"] for h in hits}
+        similar_sorted = sorted(similar, key=lambda r: score_map.get(str(r.id), 0), reverse=True)
+
+        items = [
+            {
+                "id": str(r.id),
+                "full_name": r.full_name,
+                "description": r.description,
+                "topics": r.topics[:5] if r.topics else [],
+                "stars_count": r.stars_count or 0,
+                "primary_language": r.primary_language,
+                "score": score_map.get(str(r.id), 0),
+            }
+            for r in similar_sorted
+        ]
+        return {"items": items, "total": len(items)}
+
+    except Exception:
+        # Fallback: same primary_language repos
+        from sqlalchemy import select as _select
+        from src.storage.models.repository import Repository as RepoModel
+
+        stmt = _select(RepoModel).where(RepoModel.id != repo_id)
+        if repo.primary_language:
+            stmt = stmt.where(RepoModel.primary_language == repo.primary_language)
+        stmt = stmt.order_by(RepoModel.stars_count.desc()).limit(limit)
+        result = await db.execute(stmt)
+        similar = result.scalars().all()
+        items = [
+            {
+                "id": str(r.id),
+                "full_name": r.full_name,
+                "description": r.description,
+                "topics": r.topics[:5] if r.topics else [],
+                "stars_count": r.stars_count or 0,
+                "primary_language": r.primary_language,
+                "score": None,
+            }
+            for r in similar
+        ]
+        return {"items": items, "total": len(items)}

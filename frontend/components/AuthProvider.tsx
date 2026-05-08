@@ -3,21 +3,34 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import api from "@/lib/api";
 
-interface User {
+export interface UserProfile {
   id: string;
   email: string;
   username: string;
   is_active: boolean;
   created_at: string;
+  // Research profile
+  research_interests: string[] | null;
+  expertise_level: string | null;
+  affiliation: string | null;
+  position: string | null;
+  bio: string | null;
+  preferred_language: string | null;
+  preferred_sources: string[] | null;
+  preferred_llm: string | null;
+  notification_preferences: Record<string, boolean> | null;
+  dashboard_layout: Record<string, any> | null;
+  onboarding_completed: boolean;
 }
 
 interface AuthContextType {
-  user: User | null;
+  user: UserProfile | null;
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, username: string, password: string) => Promise<void>;
   logout: () => void;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -27,6 +40,7 @@ const AuthContext = createContext<AuthContextType>({
   login: async () => {},
   register: async () => {},
   logout: () => {},
+  refreshProfile: async () => {},
 });
 
 export function useAuth() {
@@ -34,7 +48,7 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -57,7 +71,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [logout]);
 
-  // Setup axios interceptor for token refresh
+  const refreshProfile = useCallback(async () => {
+    const savedToken = localStorage.getItem("access_token");
+    if (savedToken) {
+      const { data } = await api.get("/auth/me");
+      setUser(data);
+    }
+  }, []);
+
   useEffect(() => {
     const interceptor = api.interceptors.response.use(
       (response) => response,
@@ -88,7 +109,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => api.interceptors.response.eject(interceptor);
   }, [logout]);
 
-  // Load token from localStorage on mount
   useEffect(() => {
     const savedToken = localStorage.getItem("access_token");
     if (savedToken) {
@@ -104,7 +124,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem("refresh_token", data.refresh_token);
     api.defaults.headers.common["Authorization"] = `Bearer ${data.access_token}`;
     setToken(data.access_token);
-    // Fetch user profile
     const { data: userData } = await api.get("/auth/me");
     setUser(userData);
   };
@@ -114,7 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

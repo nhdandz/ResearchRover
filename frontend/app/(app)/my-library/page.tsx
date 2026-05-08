@@ -23,6 +23,11 @@ import {
   Code,
   Bookmark,
   Eye,
+  BookCheck,
+  BookOpen,
+  BookMarked,
+  Archive,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/AuthProvider";
@@ -37,6 +42,7 @@ import {
   uploadDocument,
   downloadDocument,
   savePaperToFolder,
+  updateBookmark,
 } from "@/lib/api";
 import { BookmarkDialog } from "@/components/BookmarkDialog";
 import FileViewerModal from "@/components/FileViewerModal";
@@ -68,6 +74,7 @@ interface BookmarkItem {
   external_title: string | null;
   external_metadata: Record<string, any> | null;
   note: string | null;
+  reading_status: string;
   created_at: string;
 }
 
@@ -132,6 +139,82 @@ function timeAgo(dateStr: string): string {
   const months = Math.floor(days / 30);
   return `${months}mo ago`;
 }
+// ── Reading Status ──
+
+const READING_STATUS_CONFIG: Record<string, { label: string; icon: any; color: string; bg: string }> = {
+  saved:     { label: "Saved",     icon: BookMarked, color: "text-muted-foreground", bg: "bg-muted" },
+  reading:   { label: "Reading",   icon: BookOpen,   color: "text-blue-500",         bg: "bg-blue-500/10" },
+  completed: { label: "Completed", icon: BookCheck,  color: "text-emerald-500",      bg: "bg-emerald-500/10" },
+  archived:  { label: "Archived",  icon: Archive,    color: "text-orange-400",       bg: "bg-orange-400/10" },
+};
+
+const READING_STATUS_ORDER = ["saved", "reading", "completed", "archived"];
+
+function ReadingStatusBadge({
+  status,
+  bookmarkId,
+  onUpdate,
+}: {
+  status: string;
+  bookmarkId: string;
+  onUpdate: (id: string, status: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const cfg = READING_STATUS_CONFIG[status] ?? READING_STATUS_CONFIG.saved;
+  const Icon = cfg.icon;
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        className={cn(
+          "flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium transition-all",
+          cfg.bg, cfg.color
+        )}
+        title="Change reading status"
+      >
+        <Icon size={10} />
+        <span>{cfg.label}</span>
+        <ChevronDown size={9} className={cn("transition-transform", open && "rotate-180")} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-xl border border-border bg-card p-1 shadow-xl">
+          {READING_STATUS_ORDER.map((s) => {
+            const c = READING_STATUS_CONFIG[s];
+            const SIcon = c.icon;
+            return (
+              <button
+                key={s}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpdate(bookmarkId, s);
+                  setOpen(false);
+                }}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors",
+                  status === s ? `${c.bg} ${c.color}` : "text-muted-foreground hover:bg-muted"
+                )}
+              >
+                <SIcon size={12} />
+                {c.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 // ── Component ──
 
@@ -149,6 +232,7 @@ export default function MyLibraryPage() {
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [showDialog, setShowDialog] = useState(false);
   const [resolvedTitles, setResolvedTitles] = useState<Record<string, string>>({});
   const [uploads, setUploads] = useState<UploadProgress[]>([]);
@@ -305,6 +389,11 @@ export default function MyLibraryPage() {
 
   // ── Actions ──
 
+  const handleUpdateBookmarkStatus = async (id: string, status: string) => {
+    await updateBookmark(id, { reading_status: status });
+    setBookmarks((prev) => prev.map((b) => b.id === id ? { ...b, reading_status: status } : b));
+  };
+
   const handleDeleteBookmark = async (id: string) => {
     await deleteBookmark(id);
     setBookmarks((prev) => prev.filter((b) => b.id !== id));
@@ -444,9 +533,9 @@ export default function MyLibraryPage() {
   const sortedDocuments = [...documents].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
-  const sortedBookmarks = [...bookmarks].sort(
-    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
+  const sortedBookmarks = [...bookmarks]
+    .filter((b) => !statusFilter || b.reading_status === statusFilter)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   return (
     <div
@@ -726,15 +815,37 @@ export default function MyLibraryPage() {
           )}
 
           {/* Bookmarks section */}
-          {sortedBookmarks.length > 0 && (
+          {bookmarks.length > 0 && (
             <div>
-              <h3 className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <Bookmark size={12} />
-                Bookmarks
-                <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium normal-case">
-                  {sortedBookmarks.length}
-                </span>
-              </h3>
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <Bookmark size={12} />
+                  Bookmarks
+                  <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium normal-case">
+                    {sortedBookmarks.length}{statusFilter ? ` / ${bookmarks.length}` : ""}
+                  </span>
+                </h3>
+                <div className="flex items-center gap-1">
+                  {[null, "saved", "reading", "completed", "archived"].map((s) => {
+                    const cfg = s ? READING_STATUS_CONFIG[s] : null;
+                    const count = s ? bookmarks.filter((b) => b.reading_status === s).length : bookmarks.length;
+                    return (
+                      <button
+                        key={s ?? "all"}
+                        onClick={() => setStatusFilter(s)}
+                        className={cn(
+                          "rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all",
+                          statusFilter === s
+                            ? s ? `${cfg!.bg} ${cfg!.color}` : "bg-primary/10 text-primary"
+                            : "text-muted-foreground hover:bg-muted"
+                        )}
+                      >
+                        {s ? cfg!.label : "All"} <span className="opacity-60">({count})</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               {viewMode === "list" ? (
                 <div className="space-y-1.5">
                   {sortedBookmarks.map((b) => {
@@ -787,6 +898,11 @@ export default function MyLibraryPage() {
                             </p>
                           )}
                         </div>
+                        <ReadingStatusBadge
+                          status={b.reading_status || "saved"}
+                          bookmarkId={b.id}
+                          onUpdate={handleUpdateBookmarkStatus}
+                        />
                         <span className="shrink-0 rounded-lg bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                           {cfg.label}
                         </span>
@@ -871,9 +987,16 @@ export default function MyLibraryPage() {
                           </div>
                         </div>
                         <div className="mt-3 flex items-center justify-between">
-                          <span className="rounded-lg bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            {cfg.label}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="rounded-lg bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                              {cfg.label}
+                            </span>
+                            <ReadingStatusBadge
+                              status={b.reading_status || "saved"}
+                              bookmarkId={b.id}
+                              onUpdate={handleUpdateBookmarkStatus}
+                            />
+                          </div>
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] text-muted-foreground">
                               {timeAgo(b.created_at)}

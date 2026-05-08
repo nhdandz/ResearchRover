@@ -8,7 +8,7 @@ import { useAuth } from "@/components/AuthProvider";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const { register } = useAuth();
+  const { register, login } = useAuth();
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -32,7 +32,9 @@ export default function RegisterPage() {
     setSubmitting(true);
     try {
       await register(email, username, password);
-      router.push("/login");
+      // Auto-login rồi chuyển sang onboarding wizard
+      await login(email, password);
+      router.push("/onboarding");
     } catch (err: any) {
       setError(err.response?.data?.detail || "Registration failed");
     } finally {

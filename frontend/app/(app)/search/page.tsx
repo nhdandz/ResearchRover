@@ -10,16 +10,151 @@ import {
   Star,
   GitFork,
   ExternalLink,
+  Bookmark,
+  Check,
+  X,
+  Loader2,
 } from "lucide-react";
-import { search } from "@/lib/api";
+import { search, createSavedSearch } from "@/lib/api";
 import { formatNumber } from "@/lib/utils";
+import { useAuth } from "@/components/AuthProvider";
 
 type SearchType = "all" | "paper" | "repository";
+
+// ── Save Search Modal ──
+function SaveSearchModal({
+  query,
+  searchType,
+  onClose,
+}: {
+  query: string;
+  searchType: SearchType;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(query.slice(0, 50));
+  const [notify, setNotify] = useState(true);
+  const [frequency, setFrequency] = useState("daily");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [err, setErr] = useState("");
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) { setErr("Name is required."); return; }
+    setSaving(true);
+    setErr("");
+    try {
+      await createSavedSearch({
+        name: name.trim(),
+        query,
+        search_type: searchType === "all" ? "semantic" : searchType === "paper" ? "semantic" : "semantic",
+        notify_new_results: notify,
+        frequency,
+      });
+      setSaved(true);
+      setTimeout(onClose, 1200);
+    } catch {
+      setErr("Failed to save. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-xl">
+        <div className="flex items-center justify-between">
+          <h3 className="text-[15px] font-semibold tracking-tight text-foreground">Save this Search</h3>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted">
+            <X size={15} />
+          </button>
+        </div>
+
+        {saved ? (
+          <div className="mt-6 flex flex-col items-center gap-3 py-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/15">
+              <Check size={22} className="text-emerald-500" />
+            </div>
+            <p className="text-[14px] font-medium text-foreground">Search saved!</p>
+            <p className="text-[12px] text-muted-foreground text-center">
+              Go to <Link href="/settings/searches" className="text-primary underline">Saved Searches</Link> to manage it.
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={handleSave} className="mt-5 space-y-4">
+            <div>
+              <label className="mb-1.5 block text-[12px] font-medium text-muted-foreground">Label</label>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-[13px] text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/10"
+              />
+            </div>
+            <div className="rounded-xl border border-border bg-muted/30 px-3 py-2.5">
+              <p className="text-[11px] text-muted-foreground">Query</p>
+              <p className="mt-0.5 text-[13px] font-medium text-foreground truncate">"{query}"</p>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[12px] font-medium text-foreground">Notify new results</p>
+                <p className="text-[11px] text-muted-foreground">Daily or weekly</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNotify((v) => !v)}
+                className={`text-[13px] font-medium transition-colors ${notify ? "text-primary" : "text-muted-foreground"}`}
+              >
+                {notify ? "ON" : "OFF"}
+              </button>
+            </div>
+            {notify && (
+              <div className="flex gap-2">
+                {["daily", "weekly"].map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setFrequency(f)}
+                    className={`flex-1 rounded-xl py-2 text-[12px] font-medium capitalize transition-all ${
+                      frequency === f
+                        ? "bg-primary/12 text-primary ring-1 ring-primary/20"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+            )}
+            {err && <p className="text-[12px] text-destructive">{err}</p>}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 rounded-xl border border-border py-2.5 text-[12px] font-medium text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-primary py-2.5 text-[12px] font-medium text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-60"
+              >
+                {saving && <Loader2 size={12} className="animate-spin" />}
+                Save
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function SearchContent() {
   const searchParams = useSearchParams();
   const urlQuery = searchParams.get("q") || "";
   const urlType = (searchParams.get("type") as SearchType) || "all";
+  const { user } = useAuth();
 
   const [query, setQuery] = useState(urlQuery);
   const [type, setType] = useState<SearchType>(urlType);
@@ -27,6 +162,7 @@ function SearchContent() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [showSaveModal, setShowSaveModal] = useState(false);
 
   const doSearch = (q: string, t: SearchType) => {
     if (!q.trim()) return;
@@ -88,6 +224,18 @@ function SearchContent() {
             className="flex-1 bg-transparent py-2 text-[15px] text-foreground placeholder:text-muted-foreground/50 outline-none"
             autoFocus
           />
+          {/* Save Search button — shown when there's a query and user is logged in */}
+          {searched && query.trim() && user && (
+            <button
+              type="button"
+              onClick={() => setShowSaveModal(true)}
+              title="Save this search"
+              className="flex items-center gap-1.5 rounded-xl border border-border px-3 py-2.5 text-[12px] font-medium text-muted-foreground hover:border-primary/30 hover:bg-primary/5 hover:text-primary transition-all duration-150"
+            >
+              <Bookmark size={13} />
+              Save
+            </button>
+          )}
           <button
             type="submit"
             className="rounded-xl bg-primary px-5 py-2.5 text-[13px] font-medium text-primary-foreground transition-all duration-150 hover:opacity-90"
@@ -269,6 +417,15 @@ function SearchContent() {
             Enter a query to search across papers and repositories
           </p>
         </div>
+      )}
+
+      {/* Save Search Modal */}
+      {showSaveModal && (
+        <SaveSearchModal
+          query={query}
+          searchType={type}
+          onClose={() => setShowSaveModal(false)}
+        />
       )}
     </div>
   );

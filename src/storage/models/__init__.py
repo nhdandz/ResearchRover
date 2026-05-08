@@ -17,10 +17,12 @@ from src.storage.models.repository import Repository
 from src.storage.models.subscription import ApiRateLimit, Subscription
 from src.storage.models.tech_radar import TechRadarSnapshot
 from src.storage.models.user import User
+from src.storage.models.user_alert import UserAlert
 from src.storage.models.weekly_report import WeeklyReport
 
 __all__ = [
     "User",
+    "UserAlert",
     "Folder",
     "Bookmark",
     "Document",
@@ -44,4 +46,29 @@ __all__ = [
     "CommunityPost",
     "GitHubDiscussion",
     "OpenReviewNote",
+    "UserFeedItem",
+    "SavedSearch",
+    "UserWeeklyDigest",
+    "PaperNote",
+    "Notification",
+    "Author",
+    "AuthorPaper",
+    "PaperSignal",
+    "ConceptTrend",
 ]
+
+# Phase 2 models — thêm vào sau
+from src.storage.models.user_feed_item import UserFeedItem
+from src.storage.models.saved_search import SavedSearch
+from src.storage.models.user_weekly_digest import UserWeeklyDigest
+
+# Phase 3 models
+from src.storage.models.paper_note import PaperNote
+
+# Phase 4 models — notification engine
+from src.storage.models.notification import Notification
+
+# Phase 4 — OSINT intelligence
+from src.storage.models.author import Author, AuthorPaper
+from src.storage.models.paper_signal import PaperSignal
+from src.storage.models.concept_trend import ConceptTrend

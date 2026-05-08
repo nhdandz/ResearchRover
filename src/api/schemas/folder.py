@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -36,6 +37,9 @@ class FolderResponse(BaseModel):
 
 # ── Bookmark schemas ──
 
+ReadingStatus = Literal["saved", "reading", "completed", "archived"]
+
+
 class BookmarkCreate(BaseModel):
     folder_id: uuid.UUID
     item_type: str  # paper, repo, huggingface, external
@@ -44,11 +48,13 @@ class BookmarkCreate(BaseModel):
     external_title: str | None = None
     external_metadata: dict | None = None
     note: str | None = None
+    reading_status: ReadingStatus = "saved"
 
 
 class BookmarkUpdate(BaseModel):
     folder_id: uuid.UUID | None = None
     note: str | None = None
+    reading_status: ReadingStatus | None = None
 
 
 class BookmarkResponse(BaseModel):
@@ -60,6 +66,7 @@ class BookmarkResponse(BaseModel):
     external_title: str | None
     external_metadata: dict | None
     note: str | None
+    reading_status: str
     created_at: datetime
 
     model_config = {"from_attributes": True}

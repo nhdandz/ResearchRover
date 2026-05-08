@@ -1552,3 +1552,151 @@ async def _link_openreview_papers():
         )
 
     logger.info("Paper linking completed", linked=linked, total=len(unlinked))
+
+
+# ════════════════════════════════════════════════
+# bioRxiv / medRxiv collection (P2)
+# ════════════════════════════════════════════════
+
+@celery_app.task(name="src.workers.tasks.collection.collect_biorxiv")
+def collect_biorxiv(server: str = "biorxiv", max_results: int = 200, days: int = 7):
+    """Collect recent papers from bioRxiv or medRxiv."""
+    _run_async(_collect_biorxiv(server, max_results, days))
+
+
+async def _collect_biorxiv(server: str, max_results: int, days: int):
+    from src.collectors.biorxiv import BiorxivCollector
+    from src.storage.database import create_async_session_factory
+    from src.storage.repositories.paper_repo import PaperRepository
+
+    factory = create_async_session_factory()
+    date_from = date.today() - timedelta(days=days)
+    collected = 0
+
+    async with BiorxivCollector(server=server) as collector:
+        async with factory() as session:
+            repo = PaperRepository(session)
+            async for result in collector.collect(
+                date_from=date_from, max_results=max_results
+            ):
+                p = result.data
+                try:
+                    await repo.upsert_by_s2_id(
+                        {
+                            "doi": p.doi,
+                            "title": p.title,
+                            "abstract": p.abstract,
+                            "authors": p.authors,
+                            "categories": p.categories,
+                            "published_date": p.published_date,
+                            "source": server,
+                            "source_url": f"https://www.{server}.org/content/{p.doi}",
+                            "pdf_url": p.pdf_url,
+                        }
+                    )
+                    collected += 1
+                except Exception as e:
+                    logger.warning(f"{server} upsert failed", error=str(e), doi=p.doi)
+            await session.commit()
+
+    logger.info(f"{server} collection done", collected=collected)
+
+
+# ════════════════════════════════════════════════
+# ACL Anthology collection (P2)
+# ════════════════════════════════════════════════
+
+@celery_app.task(name="src.workers.tasks.collection.collect_acl_anthology")
+def collect_acl_anthology(year: int | None = None, max_results: int = 200):
+    """Collect papers from ACL Anthology."""
+    _run_async(_collect_acl(year, max_results))
+
+
+async def _collect_acl(year: int | None, max_results: int):
+    from src.collectors.acl_anthology import ACLAnthologyCollector
+    from src.storage.database import create_async_session_factory
+    from src.storage.repositories.paper_repo import PaperRepository
+
+    factory = create_async_session_factory()
+    collected = 0
+
+    async with ACLAnthologyCollector() as collector:
+        async with factory() as session:
+            repo = PaperRepository(session)
+            async for result in collector.collect(year=year, max_results=max_results):
+                p = result.data
+                try:
+                    await repo.upsert_by_s2_id(
+                        {
+                            "title": p.title,
+                            "abstract": p.abstract,
+                            "authors": p.authors,
+                            "categories": [f"acl.{p.venue.lower()}"],
+                            "published_date": date(p.year, 1, 1),
+                            "source": "acl_anthology",
+                            "source_url": f"https://aclanthology.org/{p.anthology_id}/",
+                            "pdf_url": p.pdf_url,
+                        }
+                    )
+                    collected += 1
+                except Exception as e:
+                    logger.warning("ACL upsert failed", error=str(e), aid=p.anthology_id)
+            await session.commit()
+
+    logger.info("ACL Anthology collection done", collected=collected)
+
+
+# ════════════════════════════════════════════════
+# Retraction Watch collection (P2)
+# ════════════════════════════════════════════════
+
+@celery_app.task(name="src.workers.tasks.collection.collect_retraction_watch")
+def collect_retraction_watch(max_results: int = 50):
+    """Pull retraction notices and flag matching papers."""
+    _run_async(_collect_retractions(max_results))
+
+
+async def _collect_retractions(max_results: int):
+    from sqlalchemy import select
+    from src.collectors.retraction_watch import RetractionWatchCollector
+    from src.storage.database import create_async_session_factory
+    from src.storage.models.paper import Paper
+
+    factory = create_async_session_factory()
+    flagged = 0
+    items_seen = 0
+
+    async with RetractionWatchCollector() as collector:
+        async with factory() as session:
+            async for result in collector.collect(max_results=max_results):
+                items_seen += 1
+                item = result.data
+                if not item.paper_doi:
+                    continue
+                paper = (
+                    await session.execute(
+                        select(Paper).where(Paper.doi == item.paper_doi)
+                    )
+                ).scalar_one_or_none()
+                if not paper:
+                    continue
+
+                # Mark via vietnam_entities (reuse JSONB) or summary field
+                marker = paper.vietnam_entities or {}
+                marker.update(
+                    {
+                        "retraction": {
+                            "retracted_at": item.published_at.isoformat(),
+                            "reason": item.reason,
+                            "source_url": item.link,
+                            "title": item.title,
+                        }
+                    }
+                )
+                paper.vietnam_entities = marker
+                paper.is_relevant = False
+                flagged += 1
+
+            await session.commit()
+
+    logger.info("Retraction watch done", items_seen=items_seen, papers_flagged=flagged)
